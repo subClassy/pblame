@@ -1,0 +1,4 @@
+Portions of this software (the hunk line-offset table in snapshot.py and the
+marker-fenced git hook installation pattern in git_hooks.py) are derived from
+blameprompt (https://github.com/Ekaanth/blameprompt), MIT License,
+Copyright (c) 2026 BlamePrompt Contributors.

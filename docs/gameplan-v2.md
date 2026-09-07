@@ -96,7 +96,7 @@ Full content-anchoring stays milestone 3.
 - Multi-developer, notes push/pull, shared index (M4). Risk scoring (M5).
 - Other agent adapters; tokens/cost/tools/subagent capture (their receipt schema shows the
   ceiling — we take only prompt, model, timestamps, files+ranges).
-- Prompts that change no files are kept in staging but not attached.
+- Prompts that change no files are dropped at attach time — nothing to blame.
 
 ## Porting & attribution
 

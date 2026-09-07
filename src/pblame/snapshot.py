@@ -16,7 +16,8 @@ class GitError(RuntimeError):
     pass
 
 
-def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
+def git(repo: Path, *args: str, env: dict[str, str] | None = None,
+        input_text: str | None = None) -> str:
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
@@ -25,6 +26,7 @@ def git(repo: Path, *args: str, env: dict[str, str] | None = None) -> str:
         capture_output=True,
         text=True,
         env=full_env,
+        input=input_text,
     )
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)}: {proc.stderr.strip()}")
@@ -47,25 +49,57 @@ def snapshot_tree(repo: Path) -> str:
         return git(repo, "write-tree", env=env)
 
 
-def diff_hunks(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple[int, int]]]:
-    """Per-file line ranges (1-based, inclusive) in new_tree that differ from
-    old_tree. Deletions contribute no ranges — there is no line left to blame."""
+def _hunk_headers(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple[int, int, int, int]]]:
+    """Per-file (old_start, old_count, new_start, new_count) hunk headers
+    from a zero-context diff of the two trees."""
     if old_tree == new_tree:
         return {}
     out = git(repo, "diff-tree", "-r", "--unified=0", old_tree, new_tree)
-    hunks: dict[str, list[tuple[int, int]]] = {}
+    files: dict[str, list[tuple[int, int, int, int]]] = {}
     current: str | None = None
+    prev = ""
     for line in out.splitlines():
-        if line.startswith("+++ "):
+        # A real "+++" header always follows the "---" line; added content
+        # lines starting with "++" must not be mistaken for one.
+        if line.startswith("+++ ") and prev.startswith("--- "):
             target = line[4:]
             # "+++ /dev/null" marks a deleted file
             current = target[2:] if target.startswith("b/") else None
         elif line.startswith("@@ ") and current:
-            # "@@ -a,b +c,d @@ ..." — we want the +c,d side
-            new_part = line.split(" +", 1)[1].split(" ", 1)[0]
-            start, _, count = new_part.partition(",")
-            n = int(count) if count else 1
-            if n > 0:
-                s = int(start)
-                hunks.setdefault(current, []).append((s, s + n - 1))
+            # "@@ -a[,b] +c[,d] @@ ..." — counts default to 1 when omitted
+            tokens = line.split(" ")
+            old_start, _, old_count = tokens[1][1:].partition(",")
+            new_start, _, new_count = tokens[2][1:].partition(",")
+            files.setdefault(current, []).append((
+                int(old_start), int(old_count) if old_count else 1,
+                int(new_start), int(new_count) if new_count else 1,
+            ))
+        prev = line
+    return files
+
+
+def diff_hunks(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple[int, int]]]:
+    """Per-file line ranges (1-based, inclusive) in new_tree that differ from
+    old_tree. Deletions contribute no ranges — there is no line left to blame."""
+    hunks: dict[str, list[tuple[int, int]]] = {}
+    for path, headers in _hunk_headers(repo, old_tree, new_tree).items():
+        for _, _, new_start, new_count in headers:
+            if new_count > 0:
+                hunks.setdefault(path, []).append((new_start, new_start + new_count - 1))
     return hunks
+
+
+def hunk_offsets(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple[int, int]]]:
+    """Per-file (apply_at_line, delta) pairs: line numbers in old_tree
+    coordinates at or after apply_at_line shift by delta in new_tree.
+    After blameprompt's rebase_notes offset table (MIT), but with apply_at
+    in old coordinates — theirs uses new, which misses top-of-file inserts."""
+    offsets: dict[str, list[tuple[int, int]]] = {}
+    for path, headers in _hunk_headers(repo, old_tree, new_tree).items():
+        for old_start, old_count, _, new_count in headers:
+            delta = new_count - old_count
+            if delta != 0:
+                # "-a,0" means an insertion AFTER old line a: shift starts at a+1
+                apply_at = old_start + old_count if old_count else old_start + 1
+                offsets.setdefault(path, []).append((apply_at, delta))
+    return offsets
