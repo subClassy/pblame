@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pblame"
+version = "0.1.0"
+description = "git blame, for the prompt — records the prompt behind AI-generated code changes"
+requires-python = ">=3.13"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+pblame = "pblame.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pblame"]
