@@ -60,10 +60,33 @@ def find_open(receipts: list[Receipt], session_id: str) -> Receipt | None:
     return None
 
 
+def _shift_at(line: int, deltas: list[tuple[int, int]]) -> int:
+    return sum(d for at, d in deltas if at <= line)
+
+
+def remap_range(start: int, end: int, deltas: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Map one old-coordinate range into new coordinates. An insertion landing
+    inside the range splits it in two — the lines above the insertion keep
+    their old position while the lines below slide down."""
+    pieces: list[tuple[int, int]] = []
+    seg_start = start
+    for at, delta in sorted(deltas):
+        if delta > 0 and seg_start < at <= end:
+            pieces.append((seg_start, at - 1))
+            seg_start = at
+    pieces.append((seg_start, end))
+
+    # Endpoints shift independently so a deletion inside the range shrinks it.
+    remapped = []
+    for s, e in pieces:
+        new_s = max(s + _shift_at(s, deltas), 1)
+        remapped.append((new_s, max(e + _shift_at(e, deltas), new_s)))
+    return remapped
+
+
 def apply_offsets(receipts: list[Receipt], offsets: dict[str, list[tuple[int, int]]]) -> None:
-    """Shift closed receipts' recorded ranges to account for a newer diff
-    inserting or deleting lines above them, so ranges stay valid in the
-    latest tree's coordinates until attach."""
+    """Realign closed receipts' recorded ranges after a newer diff inserted or
+    deleted lines, so ranges stay valid in the latest tree's coordinates."""
     if not offsets:
         return
     for r in receipts:
@@ -73,9 +96,7 @@ def apply_offsets(receipts: list[Receipt], offsets: dict[str, list[tuple[int, in
             deltas = offsets.get(fc.path)
             if not deltas:
                 continue
-            shifted = []
-            for start, end in fc.ranges:
-                shift = sum(d for at, d in deltas if at <= start)
-                new_start = max(start + shift, 1)
-                shifted.append((new_start, new_start + (end - start)))
-            fc.ranges = shifted
+            fc.ranges = [
+                piece for start, end in fc.ranges
+                for piece in remap_range(start, end, deltas)
+            ]

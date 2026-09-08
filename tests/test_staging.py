@@ -75,6 +75,30 @@ def test_apply_offsets_accumulates_deltas():
     assert r.files[0].ranges == [(21, 22)]
 
 
+def test_apply_offsets_splits_range_around_interior_insertion():
+    # The real-agent failure: a later prompt inserts inside a range an earlier
+    # prompt owns, so the earlier range must split rather than over-claim.
+    r = closed_receipt("index.html", [(1, 12)])
+    staging.apply_offsets([r], {"index.html": [(9, 8)]})
+    assert r.files[0].ranges == [(1, 8), (17, 20)]
+
+
+def test_apply_offsets_shrinks_range_around_interior_deletion():
+    r = closed_receipt("a.py", [(5, 20)])
+    staging.apply_offsets([r], {"a.py": [(12, -3)]})
+    assert r.files[0].ranges == [(5, 17)]
+
+
+def test_apply_offsets_survives_successive_insertions():
+    # index.html from the dummy_clock session: title inserted at 9, then the
+    # duck's 8 lines inserted at 9 again.
+    r = closed_receipt("index.html", [(1, 12)])
+    staging.apply_offsets([r], {"index.html": [(9, 1)]})
+    assert r.files[0].ranges == [(1, 8), (10, 13)]
+    staging.apply_offsets([r], {"index.html": [(9, 8)]})
+    assert r.files[0].ranges == [(1, 8), (18, 21)]
+
+
 def test_apply_offsets_skips_open_receipts_and_other_files():
     open_r = make_receipt()
     open_r.files = [FileChange(path="a.py", ranges=[(5, 5)])]
