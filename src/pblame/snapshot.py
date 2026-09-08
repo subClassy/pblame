@@ -17,7 +17,7 @@ class GitError(RuntimeError):
 
 
 def git(repo: Path, *args: str, env: dict[str, str] | None = None,
-        input_text: str | None = None) -> str:
+        input_text: str | None = None, strip: bool = True) -> str:
     full_env = os.environ.copy()
     if env:
         full_env.update(env)
@@ -30,7 +30,7 @@ def git(repo: Path, *args: str, env: dict[str, str] | None = None,
     )
     if proc.returncode != 0:
         raise GitError(f"git {' '.join(args)}: {proc.stderr.strip()}")
-    return proc.stdout.strip()
+    return proc.stdout.strip() if strip else proc.stdout
 
 
 def repo_root(path: Path) -> Path:

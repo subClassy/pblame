@@ -1,9 +1,10 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from . import adapters, git_hooks, notes
+from . import adapters, blame, git_hooks, notes
 from .snapshot import GitError, repo_root
 
 
@@ -42,6 +43,51 @@ def cmd_attach(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_blame(args: argparse.Namespace) -> int:
+    try:
+        repo = repo_root(Path.cwd())
+        rel = Path(args.file).resolve().relative_to(repo).as_posix()
+    except GitError as e:
+        print(f"pblame: {e}", file=sys.stderr)
+        return 1
+    except ValueError:
+        print(f"pblame: {args.file} is outside the repository", file=sys.stderr)
+        return 1
+
+    try:
+        lines = blame.attribute(repo, rel)
+    except GitError as e:
+        print(f"pblame: cannot blame {rel} ({e})", file=sys.stderr)
+        return 1
+
+    if args.json:
+        print(json.dumps(blame.to_json(lines, rel), indent=2))
+    else:
+        color = sys.stdout.isatty() and not args.no_color and "NO_COLOR" not in os.environ
+        print(blame.render(lines, rel, color=color, glyphs=blame.glyphs_for(sys.stdout)))
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    try:
+        repo = repo_root(Path.cwd())
+    except GitError as e:
+        print(f"pblame: {e}", file=sys.stderr)
+        return 1
+    receipts = notes.read(repo, args.commit)
+    if not receipts:
+        print(f"pblame: no prompt receipts recorded for {args.commit}")
+        return 0
+    for r in receipts:
+        print(f"{r.prompt.model} - {r.prompt.timestamp:%Y-%m-%d %H:%M} - {r.prompt.session_id}")
+        print(f"  {r.prompt.text.strip()}")
+        for fc in r.files:
+            spans = ", ".join(f"{s}-{e}" if s != e else str(s) for s, e in fc.ranges)
+            print(f"    {fc.path}  {spans}")
+        print()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="pblame")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -56,6 +102,16 @@ def main(argv: list[str] | None = None) -> int:
 
     attach = sub.add_parser("attach", help="attach staged receipts to HEAD (run by post-commit)")
     attach.set_defaults(func=cmd_attach)
+
+    bl = sub.add_parser("blame", help="show a file annotated with the prompt behind each line")
+    bl.add_argument("file")
+    bl.add_argument("--json", action="store_true", help="machine-readable output")
+    bl.add_argument("--no-color", action="store_true")
+    bl.set_defaults(func=cmd_blame)
+
+    show = sub.add_parser("show", help="show all prompt receipts recorded for a commit")
+    show.add_argument("commit", nargs="?", default="HEAD")
+    show.set_defaults(func=cmd_show)
 
     args = parser.parse_args(argv)
     return args.func(args)
