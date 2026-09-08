@@ -94,17 +94,61 @@ def _model_from_transcript(path: str | None) -> str:
     return "unknown"
 
 
-def install(repo: Path) -> Path:
-    """Wire the two hooks into the repo's .claude/settings.json (merged with
-    whatever is there; refuses to touch corrupt JSON; idempotent)."""
-    path = repo / ".claude" / "settings.json"
-    path.parent.mkdir(exist_ok=True)
-    if path.exists():
-        text = path.read_text(encoding="utf-8")
-        settings = json.loads(text) if text.strip() else {}  # raises on corrupt JSON
-    else:
-        settings = {}
+SHARED_SETTINGS = "settings.json"
+LOCAL_SETTINGS = "settings.local.json"
 
+
+def _read_settings(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    text = path.read_text(encoding="utf-8")
+    return json.loads(text) if text.strip() else {}  # raises on corrupt JSON
+
+
+def _strip_pblame_hooks(settings: dict) -> bool:
+    """Drop pblame's hook entries, leaving any others alone."""
+    hooks = settings.get("hooks")
+    if not isinstance(hooks, dict):
+        return False
+    removed = False
+    for event in list(hooks):
+        entries = hooks[event]
+        if not isinstance(entries, list):
+            continue
+        kept = [e for e in entries if "pblame" not in json.dumps(e)]
+        if len(kept) != len(entries):
+            removed = True
+            if kept:
+                hooks[event] = kept
+            else:
+                del hooks[event]
+    if not hooks:
+        settings.pop("hooks", None)
+    return removed
+
+
+def install(repo: Path) -> Path:
+    """Wire the two hooks into .claude/settings.local.json — the personal,
+    gitignored variant, because the command embeds an absolute path to this
+    machine's pblame binary and must never be committed. Merges with whatever
+    is already there; refuses to touch corrupt JSON; idempotent."""
+    claude_dir = repo / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+
+    # An earlier version installed into the shared settings. Leaving those in
+    # place would fire every hook twice and corrupt turn boundaries.
+    shared = claude_dir / SHARED_SETTINGS
+    if shared.exists():
+        data = _read_settings(shared)
+        if _strip_pblame_hooks(data):
+            if data:
+                shared.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            else:
+                shared.unlink()  # it held nothing but pblame's hooks
+            print(f"pblame: moved hooks out of {shared.name} into {LOCAL_SETTINGS}")
+
+    path = claude_dir / LOCAL_SETTINGS
+    settings = _read_settings(path)
     command = f'"{git_hooks.own_binary()}" hook claude'
     hooks = settings.setdefault("hooks", {})
     for event in HOOK_EVENTS:
@@ -114,4 +158,5 @@ def install(repo: Path) -> Path:
         entries.append({"hooks": [{"type": "command", "command": command}]})
 
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+    git_hooks.ensure_ignored(repo, f".claude/{LOCAL_SETTINGS}")
     return path

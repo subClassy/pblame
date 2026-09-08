@@ -4,8 +4,30 @@ already has (pattern from blameprompt, MIT)."""
 import sys
 from pathlib import Path
 
+from .snapshot import GitError, git
+
 MARK_START = "# pblame"
 MARK_END = "# /pblame"
+
+
+def ensure_ignored(repo: Path, rel_path: str) -> None:
+    """Ignore rel_path via .git/info/exclude, unless git already ignores it.
+    Repo-local on purpose: no tracked file is modified, so `pblame init`
+    never dirties the working tree or lands in a commit."""
+    try:
+        git(repo, "check-ignore", "-q", rel_path)
+        return  # some ignore source already covers it
+    except GitError:
+        pass
+
+    exclude = repo / ".git" / "info" / "exclude"
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    if rel_path in existing.split():
+        return
+    prefix = "" if not existing or existing.endswith("\n") else "\n"
+    with exclude.open("a", encoding="utf-8", newline="\n") as f:
+        f.write(f"{prefix}{rel_path}\n")
 
 
 def own_binary() -> str:
