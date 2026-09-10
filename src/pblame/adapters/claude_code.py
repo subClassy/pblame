@@ -15,15 +15,34 @@ diff since the last snapshot also shifts older staged receipts' ranges
 
 import dataclasses
 import json
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import git_hooks, staging
 from ..models import FileChange, PromptEvent, Receipt
-from ..snapshot import diff_hunks, hunk_offsets, repo_root, snapshot_tree
+from ..snapshot import (
+    diff_hunks,
+    hunk_offsets,
+    renames,
+    repo_root,
+    snapshot_tree,
+    touched_paths,
+)
 
 HOOK_EVENTS = ("UserPromptSubmit", "Stop")
+
+# Claude Code wraps the typed prompt in editor context. The prompt is this
+# product's core artifact, so store what the developer actually wrote.
+_INJECTED = re.compile(
+    r"<(ide_opened_file|ide_selection|system-reminder)>.*?</\1>",
+    re.DOTALL,
+)
+
+
+def clean_prompt(text: str) -> str:
+    return _INJECTED.sub("", text).strip()
 
 
 def handle(payload: dict) -> None:
@@ -31,35 +50,38 @@ def handle(payload: dict) -> None:
     if event not in HOOK_EVENTS:
         return
     repo = repo_root(Path(payload.get("cwd") or "."))
-    state = staging.load(repo)
-    tree = snapshot_tree(repo)
+    with staging.lock(repo):
+        state = staging.load(repo)
+        tree = snapshot_tree(repo)
 
-    # Everything since the last snapshot (this turn, or a human gap) may have
-    # shifted lines under older staged receipts — realign them exactly once.
-    if state.last_tree and state.last_tree != tree:
-        staging.apply_offsets(state.receipts, hunk_offsets(repo, state.last_tree, tree))
+        # Everything since the last snapshot (this turn, or a human gap) may
+        # have moved lines or whole files under older staged receipts —
+        # realign them exactly once.
+        if state.last_tree and state.last_tree != tree:
+            staging.apply_renames(state.receipts, renames(repo, state.last_tree, tree))
+            staging.apply_offsets(state.receipts, hunk_offsets(repo, state.last_tree, tree))
 
-    if event == "UserPromptSubmit":
-        # A still-open receipt means the previous turn never saw Stop
-        # (interrupt or crash): close it at this boundary instead.
-        _close(repo, state.receipts, payload, tree)
-        state.receipts.append(
-            Receipt(
-                prompt=PromptEvent(
-                    id=uuid.uuid4().hex,
-                    text=payload.get("prompt", ""),
-                    model="",
-                    timestamp=datetime.now(timezone.utc),
-                    session_id=payload.get("session_id", ""),
-                ),
-                pre_tree=tree,
+        if event == "UserPromptSubmit":
+            # A still-open receipt means the previous turn never saw Stop
+            # (interrupt or crash): close it at this boundary instead.
+            _close(repo, state.receipts, payload, tree)
+            state.receipts.append(
+                Receipt(
+                    prompt=PromptEvent(
+                        id=uuid.uuid4().hex,
+                        text=clean_prompt(payload.get("prompt", "")),
+                        model="",
+                        timestamp=datetime.now(timezone.utc),
+                        session_id=payload.get("session_id", ""),
+                    ),
+                    pre_tree=tree,
+                )
             )
-        )
-    else:  # Stop
-        _close(repo, state.receipts, payload, tree)
+        else:  # Stop
+            _close(repo, state.receipts, payload, tree)
 
-    state.last_tree = tree
-    staging.save(repo, state)
+        state.last_tree = tree
+        staging.save(repo, state)
 
 
 def _close(repo: Path, receipts: list[Receipt], payload: dict, post_tree: str) -> None:
@@ -67,9 +89,12 @@ def _close(repo: Path, receipts: list[Receipt], payload: dict, post_tree: str) -
     if receipt is None:
         return
     receipt.post_tree = post_tree
+    # Every touched path, not just those with surviving lines: a prompt that
+    # only deletes code still changed the codebase and belongs in the record.
+    hunks = diff_hunks(repo, receipt.pre_tree, post_tree)
     receipt.files = [
-        FileChange(path=path, ranges=ranges)
-        for path, ranges in diff_hunks(repo, receipt.pre_tree, post_tree).items()
+        FileChange(path=path, ranges=hunks.get(path, []))
+        for path in sorted(touched_paths(repo, receipt.pre_tree, post_tree))
     ]
     model = _model_from_transcript(payload.get("transcript_path"))
     receipt.prompt = dataclasses.replace(receipt.prompt, model=model)

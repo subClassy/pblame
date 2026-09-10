@@ -76,27 +76,84 @@ Full content-anchoring stays milestone 3.
 
 ## Revised week
 
-- **Day 2 (now):** restructure to v2 models; Claude adapter (`pblame hook claude`:
-  UserPromptSubmit/Stop → staging receipts with ranges + model). Success = synthetic
-  hook-event pipeline verified by tests.
-- **Day 3:** `pblame init` (installs Claude hooks into the target repo's
-  `.claude/settings.json` + a marker-fenced `post-commit` git hook) and `pblame attach`
-  (staged receipts → note JSON on `refs/notes/pblame`, staging cleared) + the intra-staging
+- **Day 2** ✓ restructure to v2 models; Claude adapter (`pblame hook claude`:
+  UserPromptSubmit/Stop → staging receipts with ranges + model).
+- **Day 3** ✓ `pblame init` (Claude hooks + a marker-fenced `post-commit` git hook) and
+  `pblame attach` (staged receipts → note JSON on `refs/notes/pblame`) + the intra-staging
   offset adjustment.
-- **Day 4:** `pblame blame <file>` — annotated-source rendering is the demo; their table
-  output proves the data, ours must make people *see* it. `pblame show <sha>` for full
-  prompts.
-- **Day 5:** demo repo (~20 prompts, real Claude Code session, normal commits).
-- Days 6–7: buffer.
+- **Day 4** ✓ `pblame blame <file>` — annotated-source rendering is the demo. `pblame show
+  <sha>` for full prompts.
+- **Day 5a** ✓ stress test on a real repo ([day5-stress-script.md](day5-stress-script.md)).
+  Its job was to make the assumptions leak, and it did — see below.
+- **Day 5b** — fix everything day 5a found. All of it, not just the demo-blocking subset.
+- **Day 6** — two recordings: a short 3–4 prompt run on dummy_clock, which keeps the
+  original day-1 prompts in play and proves the fixes against existing history; then a
+  fresh ~20 prompt demo on a new, instantly-legible subject.
+- **Day 7** — buffer + demo narrative.
 
-## Non-goals this week (unchanged unless noted)
+## Stress-test findings (day 5a) and what they changed
 
-- Rebase/squash survival of *committed* notes (M3) — but steal their offset algorithm for
-  staging, above.
+Twenty prompts plus rewrites, a merge, interrupts, session changes and concurrent sessions.
+The architecture held: every failure was a bug in a leaf, not a flaw in
+staging → attach → notes → blame. Eight findings, all now in scope for day 5b.
+
+1. **Encoding killed recording silently.** `subprocess.run(text=True)` decodes with the
+   Windows locale codepage. An agent wrote an emoji into a tracked file, cp1252 could not
+   decode git's output, every git call in the recorder raised, and `cmd_hook`'s catch-all
+   — which exists so a broken hook never breaks the agent's turn — swallowed it. Recording
+   stopped for 26 minutes and five prompts with no trace anywhere.
+2. **Rename steals a whole file.** No `-M`, so `diff-tree` saw delete+add and the renaming
+   prompt claimed every line of the new path.
+3. **Deletion-only prompts vanish.** No surviving lines → empty receipt → dropped.
+4. **Prompt text polluted** by `<ide_opened_file>` / `<ide_selection>` wrappers.
+5. **Cross-session orphans never close** — `find_open` matches on `session_id`.
+6. **Partial commits over-attach** — a receipt attaches whole if *any* of its files is in
+   the commit.
+7. **Rewriting orphans notes** (the known M3 gap), confirmed with a real casualty.
+8. **Merge commits carry nothing**, and concurrent sessions clobber staging.
+
+### Three of these are gameplan changes, not bugs
+
+**Recording integrity is a product requirement.** A record with invisible holes is worse
+than no record, because people trust it. The pitch is a system of record; the first
+question an auditor asks is whether the log is complete. So: a catch-all that protects the
+caller must still leave a trace (`.git/pblame/hook.log`), and the roadmap needs gap
+detection and a coverage number — "this commit's lines are 94% accounted for" — plus
+eventually `pblame doctor`. Nothing before this makes the record trustworthy.
+
+**Deletions force a data-model decision.** Recording only surviving lines is a coherent
+choice for `blame` rendering, but "which prompt deleted the auth check" is the more
+important review question, and the current model cannot express it. Decision: a receipt
+records the *change*; blame *projects* it onto surviving lines. Files touched with no
+surviving lines are kept and shown, not dropped.
+
+**Rename is milestone 3 arriving early.** File identity across history is the same problem
+as line identity across history. `-M` is a patch over the anchoring work, not a solution;
+M3 pressure shows up sooner than the roadmap assumed.
+
+Smaller, but load-bearing: "one agent session at a time" was an accepted assumption and
+finding 8 shows it is real — staging is `load → mutate → save` with no locking. Given this
+doc's own claim that teams run 2–3 agents in combination, staging needs a lock now rather
+than at M4.
+
+## Non-goals this week (revised after day 5a)
+
+Pulled *into* scope, because the stress test showed they are not optional: rename
+tracking (`-M`), deletion-only receipts, prompt-text cleaning, orphan reaping,
+per-file attach splitting, `post-rewrite` note remapping (a first cut at M3), merge
+commits, and a staging lock.
+
+Still out:
+
+- Content-based anchoring — the real M3. `-M` plus offset remapping handles the common
+  cases; text that moves between files, or is reformatted wholesale, still rots.
 - Multi-developer, notes push/pull, shared index (M4). Risk scoring (M5).
-- Other agent adapters; tokens/cost/tools/subagent capture (their receipt schema shows the
-  ceiling — we take only prompt, model, timestamps, files+ranges).
-- Prompts that change no files are dropped at attach time — nothing to blame.
+- Other agent adapters; tokens/cost/tools/subagent capture (blameprompt's receipt schema
+  shows the ceiling — we take only prompt, model, timestamps, files+ranges).
+- Coverage/gap reporting and `pblame doctor` — named above as a requirement, built after
+  the demo.
+- Prompts that touch no file at all are still dropped; a prompt that only *deletes* is now
+  kept.
 
 ## Porting & attribution
 

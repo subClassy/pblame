@@ -43,10 +43,27 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(f"pblame: {args.repo} is not a git repository ({e})", file=sys.stderr)
         return 1
     settings = adapters.get("claude").install(repo)
-    hook = git_hooks.install_post_commit(repo)
+    hooks = git_hooks.install_hooks(repo)
     print(f"pblame: installed Claude Code hooks in {settings}")
-    print(f"pblame: installed post-commit hook in {hook}")
+    for hook in hooks:
+        print(f"pblame: installed {hook.name} hook in {hook}")
     print("pblame: recording starts with the next Claude Code session in this repo")
+    return 0
+
+
+def cmd_rewrite(args: argparse.Namespace) -> int:
+    """Run by the post-rewrite hook: stdin carries "<old> <new>" per line."""
+    try:
+        repo = repo_root(Path.cwd())
+        moved = 0
+        for line in sys.stdin.read().splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                moved += notes.remap(repo, parts[0], parts[1])
+        if moved:
+            print(f"[pblame] carried {moved} prompt receipt(s) onto rewritten commits")
+    except Exception as e:
+        print(f"pblame: rewrite error: {e}", file=sys.stderr)
     return 0
 
 
@@ -102,7 +119,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  {r.prompt.text.strip()}")
         for fc in r.files:
             spans = ", ".join(f"{s}-{e}" if s != e else str(s) for s, e in fc.ranges)
-            print(f"    {fc.path}  {spans}")
+            print(f"    {fc.path}  {spans or '(no surviving lines)'}")
         print()
     return 0
 
@@ -129,6 +146,9 @@ def main(argv: list[str] | None = None) -> int:
 
     attach = sub.add_parser("attach", help="attach staged receipts to HEAD (run by post-commit)")
     attach.set_defaults(func=cmd_attach)
+
+    rewrite = sub.add_parser("rewrite", help="carry notes onto rewritten commits (run by post-rewrite)")
+    rewrite.set_defaults(func=cmd_rewrite)
 
     bl = sub.add_parser("blame", help="show a file annotated with the prompt behind each line")
     bl.add_argument("file")

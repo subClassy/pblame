@@ -11,6 +11,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+# Rename detection. Without it a rename reads as delete+add and the renaming
+# prompt claims every line of the new path.
+RENAMES = "-M"
+
 
 class GitError(RuntimeError):
     pass
@@ -53,16 +57,19 @@ def snapshot_tree(repo: Path) -> str:
         return git(repo, "write-tree", env=env)
 
 
+def _diff(repo: Path, old: str, new: str) -> str:
+    return git(repo, "diff-tree", "-r", RENAMES, "--unified=0", old, new)
+
+
 def _hunk_headers(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple[int, int, int, int]]]:
     """Per-file (old_start, old_count, new_start, new_count) hunk headers
     from a zero-context diff of the two trees."""
     if old_tree == new_tree:
         return {}
-    out = git(repo, "diff-tree", "-r", "--unified=0", old_tree, new_tree)
     files: dict[str, list[tuple[int, int, int, int]]] = {}
     current: str | None = None
     prev = ""
-    for line in out.splitlines():
+    for line in _diff(repo, old_tree, new_tree).splitlines():
         # A real "+++" header always follows the "---" line; added content
         # lines starting with "++" must not be mistaken for one.
         if line.startswith("+++ ") and prev.startswith("--- "):
@@ -91,6 +98,39 @@ def diff_hunks(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple
             if new_count > 0:
                 hunks.setdefault(path, []).append((new_start, new_start + new_count - 1))
     return hunks
+
+
+def touched_paths(repo: Path, old_tree: str, new_tree: str) -> set[str]:
+    """Every path the diff touches, including ones left with no surviving
+    lines. A prompt that only deletes code still changed the codebase."""
+    if old_tree == new_tree:
+        return set()
+    out = git(repo, "diff-tree", "-r", RENAMES, "--name-only", "--no-commit-id",
+              old_tree, new_tree)
+    return {p for p in out.splitlines() if p}
+
+
+def renames(repo: Path, old_tree: str, new_tree: str) -> dict[str, str]:
+    """{old path: new path} for files git detected as renamed, so staged
+    receipts can follow the file instead of losing it."""
+    if old_tree == new_tree:
+        return {}
+    out = git(repo, "diff-tree", "-r", RENAMES, "--name-status", "--no-commit-id",
+              old_tree, new_tree)
+    moved = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R"):
+            moved[parts[1]] = parts[2]
+    return moved
+
+
+def commit_paths(repo: Path, sha: str) -> set[str]:
+    """Paths a commit changed. A merge diffs against its first parent —
+    without that, diff-tree reports nothing at all for merge commits."""
+    out = git(repo, "diff-tree", "-r", RENAMES, "--name-only", "--no-commit-id",
+              "--root", "--diff-merges=first-parent", sha)
+    return {p for p in out.splitlines() if p}
 
 
 def hunk_offsets(repo: Path, old_tree: str, new_tree: str) -> dict[str, list[tuple[int, int]]]:

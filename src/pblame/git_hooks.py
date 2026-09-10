@@ -48,11 +48,36 @@ def _post_commit_section() -> str:
     )
 
 
+def _post_rewrite_section() -> str:
+    # amend/rebase feed "<old-sha> <new-sha>" pairs on stdin; without this the
+    # note is stranded on a commit no longer reachable.
+    exe = own_binary().replace("\\", "/")
+    return (
+        f"{MARK_START}\n"
+        f'"{exe}" rewrite 2>>.git/pblame/hook.log || true\n'
+        f"{MARK_END}\n"
+    )
+
+
+HOOKS = {
+    "post-commit": _post_commit_section,
+    "post-rewrite": _post_rewrite_section,
+}
+
+
+def install_hooks(repo: Path) -> list[Path]:
+    """Install every pblame git hook, preserving any hooks already there."""
+    return [_install(repo, name, section()) for name, section in HOOKS.items()]
+
+
 def install_post_commit(repo: Path) -> Path:
+    return _install(repo, "post-commit", _post_commit_section())
+
+
+def _install(repo: Path, name: str, section: str) -> Path:
     hooks_dir = repo / ".git" / "hooks"
     hooks_dir.mkdir(exist_ok=True)
-    path = hooks_dir / "post-commit"
-    section = _post_commit_section()
+    path = hooks_dir / name
 
     if path.exists():
         existing = path.read_text(encoding="utf-8")

@@ -9,10 +9,14 @@ older staged receipts exactly once.
 
 import json
 import os
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .models import Receipt
+
+LOCK_TIMEOUT = 10.0
 
 
 @dataclass
@@ -21,8 +25,49 @@ class StagingState:
     receipts: list[Receipt] = field(default_factory=list)
 
 
+def _dir(repo: Path) -> Path:
+    return repo / ".git" / "pblame"
+
+
 def _path(repo: Path) -> Path:
-    return repo / ".git" / "pblame" / "staging.json"
+    return _dir(repo) / "staging.json"
+
+
+@contextmanager
+def lock(repo: Path, timeout: float = LOCK_TIMEOUT):
+    """Serialize read-modify-write of the staging file.
+
+    Two agent sessions in one repo would otherwise both load, both mutate,
+    and the second save would silently discard the first's receipt. On
+    timeout we proceed anyway: losing a lock is better than blocking, or
+    failing, somebody's agent turn.
+    """
+    path = _dir(repo)
+    path.mkdir(exist_ok=True)
+    lock_path = path / "staging.lock"
+    deadline = time.monotonic() + timeout
+    fd = None
+    while fd is None:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            if time.monotonic() >= deadline:
+                # Assume the holder died and took the lock file with it.
+                try:
+                    lock_path.unlink()
+                except OSError:
+                    pass
+                break
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+            try:
+                lock_path.unlink()
+            except OSError:
+                pass
 
 
 def load(repo: Path) -> StagingState:
@@ -100,3 +145,14 @@ def apply_offsets(receipts: list[Receipt], offsets: dict[str, list[tuple[int, in
                 piece for start, end in fc.ranges
                 for piece in remap_range(start, end, deltas)
             ]
+
+
+def apply_renames(receipts: list[Receipt], moved: dict[str, str]) -> None:
+    """Follow renames so an earlier prompt keeps owning its lines under the
+    file's new name instead of silently losing them."""
+    if not moved:
+        return
+    for r in receipts:
+        for fc in r.files:
+            if fc.path in moved:
+                fc.path = moved[fc.path]
