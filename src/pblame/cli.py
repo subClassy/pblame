@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from . import adapters, blame, git_hooks, notes
@@ -9,12 +10,30 @@ from .snapshot import GitError, repo_root
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
+    payload: dict = {}
     try:
-        adapters.get(args.agent).handle(json.loads(sys.stdin.read()))
+        # Hook payloads are UTF-8; Windows would otherwise decode them as cp1252
+        # and mangle every non-ASCII character in the prompt.
+        payload = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
+        adapters.get(args.agent).handle(payload)
     except Exception as e:
-        # A broken hook must never break the agent's turn: report, exit 0.
-        print(f"pblame: hook error: {e}", file=sys.stderr)
+        # A broken hook must never break the agent's turn: log, exit 0.
+        _log_hook_error(payload, e)
     return 0
+
+
+def _log_hook_error(payload: dict, error: Exception) -> None:
+    """Leave a trace in the repo's hook log. Silent failure is the worst
+    outcome here: recording can stop for a whole session unnoticed."""
+    line = f"{datetime.now():%Y-%m-%d %H:%M:%S} hook: {type(error).__name__}: {error}"
+    print(f"pblame: {line}", file=sys.stderr)
+    try:
+        log = repo_root(Path(payload.get("cwd") or ".")) / ".git" / "pblame" / "hook.log"
+        log.parent.mkdir(exist_ok=True)
+        with log.open("a", encoding="utf-8") as f:
+            print(line, file=f)
+    except Exception:
+        pass  # the error path must never raise
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -89,6 +108,14 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Blamed source lines can hold characters the console cannot encode (a
+    # cp1252 Windows console cannot print an emoji). Degrade, never crash.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, OSError):
+            pass
+
     parser = argparse.ArgumentParser(prog="pblame")
     sub = parser.add_subparsers(dest="command", required=True)
 

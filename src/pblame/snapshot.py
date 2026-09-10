@@ -25,6 +25,10 @@ def git(repo: Path, *args: str, env: dict[str, str] | None = None,
         ["git", "-C", str(repo), *args],
         capture_output=True,
         text=True,
+        # Repo content is UTF-8. Without this, Windows decodes git's output as
+        # cp1252 and a single emoji in a tracked file kills every git call.
+        encoding="utf-8",
+        errors="replace",
         env=full_env,
         input=input_text,
     )
