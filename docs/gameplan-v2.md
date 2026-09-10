@@ -161,3 +161,28 @@ Reference clone lives in the session scratchpad only — never vendored into thi
 If their code is ported near-verbatim (e.g. `rebase_notes.rs` offset table), add a NOTICE
 entry: "Portions derived from blameprompt (github.com/Ekaanth/blameprompt), MIT License,
 Copyright (c) 2026 BlamePrompt Contributors."
+
+## Where blameprompt stands on the day-5a findings (re-checked 2026-09-10)
+
+Re-read their source against our eight. They solve three, share four, and one does not
+apply to their design.
+
+| # | Ours | blameprompt |
+|---|---|---|
+| 1 | encoding killed recording | **immune** — Rust strings are UTF-8 and they decode with `from_utf8_lossy`. The bug class cannot occur. Evidence for the eventual Go/Rust port. |
+| 2 | rename steals the file | **same bug.** No `-M` anywhere. Worse: `blame.rs` matches paths with `ends_with` in both directions, so unrelated suffixes can collide. |
+| 3 | deletion-only prompts vanish | **partly ahead.** They store per-file `additions`/`deletions` counts, so the receipt survives — but their blame still cannot render a deleted line. Record kept, question unanswerable. |
+| 4 | prompt polluted by editor context | **same bug, and costlier.** Their headline feature scores prompt quality (clarity, actionability, context, efficiency) over text that includes `<ide_opened_file>` boilerplate. |
+| 5 | cross-session orphans | **not applicable.** No open/closed lifecycle; receipts upsert by `(session_id, prompt_number)`. Robust here, but it is why they diff working-tree-vs-HEAD instead of bounding a turn with snapshots — coarser attribution. |
+| 6 | partial commits over-attach | **worse.** `attach` takes *all* staged receipts, writes them to HEAD unconditionally, then clears staging. A partial commit mis-attaches and drops the pending remainder. |
+| 7 | rewriting orphans notes | **solved** — `post-rewrite` + offset remap. We ported it, correcting `apply_at` to old-file coordinates. |
+| 8 | merge commits, concurrency | **same bugs.** No merge handling, no lock around the staging read-modify-write. |
+
+Net: after day 5b we are ahead on 2, 3 (rendering), 4, 6 and 8 — all on the
+"which prompt owns this line" axis, which is the pitch. They are ahead on 1 by choosing a
+language where it cannot happen, and on 5 by a simpler model that buys robustness with
+precision.
+
+**Worth stealing:** `compute_acceptance_stats` compares AI-written blobs against HEAD to
+derive accepted vs. overridden lines — how much of the agent's output the human kept. That
+is a real review signal we do not capture, and it feeds the M5 outcomes thesis directly.
