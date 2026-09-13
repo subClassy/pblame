@@ -17,6 +17,7 @@ from .snapshot import (
     diff_hunks,
     git,
     hunk_offsets,
+    renames,
     snapshot_tree,
     touched_paths,
 )
@@ -65,20 +66,30 @@ def _close_orphans(repo: Path, state: staging.StagingState) -> None:
 
     `find_open` matches on session_id, so a receipt orphaned by an interrupt
     plus a session change would otherwise stay open forever and never attach.
-    At commit time all work is done, so closing them here is safe.
+
+    An orphan's work ends where the *next* prompt began — not at the commit.
+    Closing it against the commit tree would swallow every later prompt's
+    work as its own. Ranges computed at that boundary are then realigned to
+    the current tree, which the closed receipts were already tracking.
     """
-    tree = None
-    for r in state.receipts:
+    now = None
+    receipts = state.receipts
+    for i, r in enumerate(receipts):
         if not r.is_open:
             continue
-        if tree is None:
-            tree = snapshot_tree(repo)
-        r.post_tree = tree
-        hunks = diff_hunks(repo, r.pre_tree, tree)
+        if now is None:
+            now = snapshot_tree(repo)
+        end = receipts[i + 1].pre_tree if i + 1 < len(receipts) else now
+
+        r.post_tree = end
+        hunks = diff_hunks(repo, r.pre_tree, end)
         r.files = [
             FileChange(path=p, ranges=hunks.get(p, []))
-            for p in sorted(touched_paths(repo, r.pre_tree, tree))
+            for p in sorted(touched_paths(repo, r.pre_tree, end))
         ]
+        if end != now:
+            staging.apply_renames([r], renames(repo, end, now))
+            staging.apply_offsets([r], hunk_offsets(repo, end, now))
         if not r.prompt.model:
             # The turn never reached Stop, so no transcript was ever read.
             r.prompt = dataclasses.replace(r.prompt, model="unknown")

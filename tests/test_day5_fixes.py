@@ -153,6 +153,42 @@ def test_orphan_from_another_session_is_closed_at_commit(repo):
     assert files_of(attached[0]) == {"a.py": [(1, 1)]}
 
 
+def test_orphan_does_not_swallow_the_next_sessions_work(repo):
+    """Found live on day 6a: an orphan closed at commit time claimed every
+    line the next session's prompt had written in between."""
+    (repo / "a.py").write_text("one\ntwo\nthree\n")
+    commit(repo, "seed")
+
+    submit(repo, "interrupted work", session="dead")
+    (repo / "a.py").write_text("one\ntwo\nthree\nfrom orphan\n")
+    # ESC, session dies. New session picks up and writes its own lines.
+    submit(repo, "new session work", session="live")
+    (repo / "a.py").write_text("one\ntwo\nthree\nfrom orphan\nfrom live\nalso live\n")
+    stop(repo, session="live")
+
+    sha = commit(repo, "both")
+    by_prompt = {r.prompt.text: files_of(r) for r in notes.attach_staged(repo, sha)}
+    assert by_prompt["interrupted work"] == {"a.py": [(4, 4)]}
+    assert by_prompt["new session work"] == {"a.py": [(5, 6)]}
+
+
+def test_orphan_bounded_by_next_prompt_still_follows_later_insertions(repo):
+    (repo / "a.py").write_text("base\n")
+    commit(repo, "seed")
+
+    submit(repo, "orphan", session="dead")
+    (repo / "a.py").write_text("base\norphan line\n")
+    # The next prompt inserts ABOVE the orphan's line: its range must shift.
+    submit(repo, "insert on top", session="live")
+    (repo / "a.py").write_text("top1\ntop2\nbase\norphan line\n")
+    stop(repo, session="live")
+
+    sha = commit(repo, "both")
+    by_prompt = {r.prompt.text: files_of(r) for r in notes.attach_staged(repo, sha)}
+    assert by_prompt["orphan"] == {"a.py": [(4, 4)]}
+    assert by_prompt["insert on top"] == {"a.py": [(1, 2)]}
+
+
 # --- 6. partial commits attach only the part that was committed -----------
 
 def test_receipt_splits_across_partial_commits(repo):
