@@ -5,7 +5,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import adapters, blame, git_hooks, notes
+from . import adapters, blame, doctor, git_hooks, notes
 from .snapshot import GitError, repo_root
 
 
@@ -104,6 +104,18 @@ def cmd_blame(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_doctor(args: argparse.Namespace) -> int:
+    try:
+        repo = repo_root(Path(args.repo).resolve())
+    except GitError:
+        print(f"pblame: {args.repo} is not a git repository", file=sys.stderr)
+        return 1
+    checks = doctor.run(repo)
+    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    print(doctor.render(checks, color=color))
+    return 1 if any(c.status == doctor.FAIL for c in checks) else 0
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path.cwd())
@@ -159,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     show = sub.add_parser("show", help="show all prompt receipts recorded for a commit")
     show.add_argument("commit", nargs="?", default="HEAD")
     show.set_defaults(func=cmd_show)
+
+    doc = sub.add_parser("doctor", help="check that this repo is actually being recorded")
+    doc.add_argument("repo", nargs="?", default=".")
+    doc.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args(argv)
     return args.func(args)

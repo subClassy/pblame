@@ -1,0 +1,193 @@
+"""Preflight check: is this repo actually being recorded, right now?
+
+Built from failures we have actually had. The worst of them was silent — a
+git call started raising, the hook swallowed it to protect the agent's turn,
+and 26 minutes of work went unrecorded with nothing to show for it. Every
+check here either proves a link in that chain or surfaces its wreckage.
+"""
+
+import json
+import re
+import shutil
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+from . import git_hooks, notes, staging
+from .adapters import claude_code
+from .snapshot import GitError, git, snapshot_tree
+
+PASS, WARN, FAIL = "pass", "warn", "fail"
+
+_QUOTED = re.compile(r'^"([^"]+)"')
+
+
+@dataclass
+class Check:
+    status: str
+    label: str
+    detail: str = ""
+
+
+def _binary_from(command: str) -> str | None:
+    m = _QUOTED.match(command.strip())
+    if m:
+        return m.group(1)
+    parts = command.split()
+    return parts[0] if parts else None
+
+
+def _binary_exists(path: str) -> bool:
+    # Hook commands record the console-script path without its Windows
+    # extension; sh and Claude Code resolve it, so accept either form.
+    if Path(path).exists():
+        return True
+    if any(Path(path + ext).exists() for ext in (".exe", ".cmd", ".bat")):
+        return True
+    return shutil.which(path) is not None
+
+
+def _check_agent_hooks(repo: Path) -> list[Check]:
+    path = repo / ".claude" / claude_code.LOCAL_SETTINGS
+    if not path.exists():
+        return [Check(FAIL, "Claude Code hooks", f"{path.name} missing - run `pblame init`")]
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return [Check(FAIL, "Claude Code hooks", f"cannot read {path.name}: {e}")]
+
+    hooks = settings.get("hooks", {})
+    out, commands = [], []
+    for event in claude_code.HOOK_EVENTS:
+        found = [h.get("command", "") for entry in hooks.get(event, [])
+                 for h in entry.get("hooks", []) if "pblame" in h.get("command", "")]
+        if found:
+            commands += found
+            out.append(Check(PASS, f"{event} hook", "registered"))
+        else:
+            out.append(Check(FAIL, f"{event} hook", "not registered - run `pblame init`"))
+        if len(found) > 1:
+            out.append(Check(FAIL, f"{event} hook", f"registered {len(found)}x - turns "
+                                                    "will be recorded twice"))
+
+    for command in set(commands):
+        binary = _binary_from(command)
+        if binary and not _binary_exists(binary):
+            out.append(Check(FAIL, "hook binary", f"{binary} does not exist - hooks fire "
+                                                  "into nothing"))
+    return out
+
+
+def _check_git_hooks(repo: Path) -> list[Check]:
+    out = []
+    for name in git_hooks.HOOKS:
+        path = repo / ".git" / "hooks" / name
+        if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding="utf-8"):
+            out.append(Check(FAIL, f"{name} hook", "not installed - run `pblame init`"))
+            continue
+        out.append(Check(PASS, f"{name} hook", "installed"))
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "pblame" in line and line.strip().startswith('"'):
+                binary = _binary_from(line)
+                if binary and not _binary_exists(binary):
+                    out.append(Check(FAIL, f"{name} binary", f"{binary} does not exist"))
+    return out
+
+
+def _check_recording_works(repo: Path) -> Check:
+    """Actually exercise the recorder against this repo's real content.
+
+    This is the check that would have caught the encoding failure: it only
+    breaks once a file holds a byte the recorder cannot handle.
+    """
+    try:
+        snapshot_tree(repo)
+        return Check(PASS, "live snapshot", "recorder can read this working tree")
+    except Exception as e:
+        return Check(FAIL, "live snapshot", f"{type(e).__name__}: {e}")
+
+
+def _check_hook_log(repo: Path) -> Check:
+    path = repo / ".git" / "pblame" / "hook.log"
+    try:
+        lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    except OSError:
+        return Check(PASS, "hook log", "empty - no hook has failed")
+    if not lines:
+        return Check(PASS, "hook log", "empty - no hook has failed")
+    return Check(FAIL, "hook log", f"{len(lines)} error(s), latest: {lines[-1]}")
+
+
+def _check_staging(repo: Path) -> list[Check]:
+    path = repo / ".git" / "pblame" / "staging.json"
+    if path.exists():
+        try:
+            json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            return [Check(FAIL, "staging", f"unreadable: {e}")]
+
+    state = staging.load(repo)
+    closed = [r for r in state.receipts if not r.is_open]
+    out = [Check(PASS, "staging", f"{len(closed)} receipt(s) awaiting a commit")]
+
+    for r in state.receipts:
+        if not r.is_open:
+            continue
+        age = datetime.now(timezone.utc) - r.prompt.timestamp
+        note = f'"{r.prompt.text[:40]}" open for {int(age.total_seconds() // 60)} min'
+        # A turn still running is normal; one open for ages is a dead session
+        # whose pre-turn snapshot no longer reflects reality.
+        out.append(Check(WARN if age.total_seconds() < 1800 else FAIL, "open receipt", note))
+    return out
+
+
+def _check_history(repo: Path) -> list[Check]:
+    out = []
+    try:
+        listed = git(repo, "notes", "--ref", notes.NOTES_REF, "list")
+        count = len([l for l in listed.splitlines() if l.strip()])
+    except GitError:
+        count = 0
+    out.append(Check(PASS if count else WARN, "recorded history",
+                     f"{count} commit(s) carry prompt receipts"))
+
+    try:
+        head = notes.read(repo, "HEAD")
+        if head:
+            latest = max(r.prompt.timestamp for r in head)
+            out.append(Check(PASS, "HEAD", f"{len(head)} receipt(s), latest {latest:%Y-%m-%d %H:%M}"))
+        else:
+            out.append(Check(WARN, "HEAD", "no receipts on the current commit"))
+    except GitError:
+        pass
+    return out
+
+
+def run(repo: Path) -> list[Check]:
+    checks = _check_agent_hooks(repo) + _check_git_hooks(repo)
+    checks.append(_check_recording_works(repo))
+    checks.append(_check_hook_log(repo))
+    checks += _check_staging(repo) + _check_history(repo)
+    return checks
+
+
+def render(checks: list[Check], color: bool = True) -> str:
+    codes = {PASS: "\033[32m", WARN: "\033[33m", FAIL: "\033[31m"}
+    width = max((len(c.label) for c in checks), default=0)
+    out = []
+    for c in checks:
+        tag = c.status.upper()
+        if color:
+            tag = f"{codes[c.status]}{tag}\033[0m"
+        out.append(f"  {tag}  {c.label.ljust(width)}  {c.detail}".rstrip())
+
+    failed = sum(1 for c in checks if c.status == FAIL)
+    warned = sum(1 for c in checks if c.status == WARN)
+    out.append("")
+    if failed:
+        out.append(f"  {failed} failing check(s) - this repo is NOT reliably recording.")
+    elif warned:
+        out.append(f"  Recording is live. {warned} warning(s) worth a look.")
+    else:
+        out.append("  Recording is live and healthy.")
+    return "\n".join(out)

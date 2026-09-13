@@ -19,6 +19,16 @@ C:\Users\subCl\Documents\Fun_stuff\prompt_version_system\.venv\Scripts\pblame.ex
 
 Then open that folder as its own Claude Code session. `PB` below = that same exe path.
 
+**Before prompt 1, and again around prompt 5, run:**
+
+```
+PB doctor
+```
+
+It must say *Recording is live*. This is the whole point of having it: the day-5
+run lost 26 minutes to a recorder that had silently stopped, and nothing on screen
+said so. Two seconds here beats discovering it at prompt 20.
+
 ## The demo moment this is built around
 
 Two prompts touch the same security behaviour:

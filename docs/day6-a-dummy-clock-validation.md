@@ -11,9 +11,10 @@ stale receipt, so it starts empty.
 
 `PB` = `C:\Users\subCl\Documents\Fun_stuff\prompt_version_system\.venv\Scripts\pblame.exe`
 
-**Baseline first** — capture what day-1 prompts own before you touch anything:
+**Baseline first** — confirm recording is live, then capture what day-1 prompts own:
 
 ```
+PB doctor                 # must say "Recording is live" before you prompt
 PB blame clock.js > before.txt
 PB show 0461c2b
 ```
@@ -113,3 +114,13 @@ cat .git/pblame/staging.json
 ```
 
 Plus `before.txt` so I can diff day-1 attribution across the rename.
+
+---
+
+## If something looks wrong at any point
+
+Run `PB doctor` first. It checks the whole chain in one shot: hooks registered
+(exactly once), the binary they point at still existing, git hooks installed, a live
+snapshot of this working tree, the hook log, stale open receipts, and what history
+already holds. Exit code 1 means recording is not reliable - stop and fix before
+prompting further.
