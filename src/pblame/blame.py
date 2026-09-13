@@ -47,17 +47,24 @@ class Line:
     receipt: Receipt | None
 
 
-def _blame(repo: Path, rel_path: str) -> list[tuple[str, int, str]]:
-    """(sha, line number in that commit, content) for each working-file line."""
+def _blame(repo: Path, rel_path: str) -> list[tuple[str, int, str, str]]:
+    """(sha, line number in that commit, path in that commit, content).
+
+    Both the line number and the path are taken as of the blamed commit,
+    because that is the coordinate system the receipts recorded. Matching on
+    the file's current name would lose every receipt written before a rename.
+    """
     out = git(repo, "blame", "--line-porcelain", "--", rel_path, strip=False)
-    lines: list[tuple[str, int, str]] = []
-    sha, orig = "", 0
+    lines: list[tuple[str, int, str, str]] = []
+    sha, orig, name = "", 0, rel_path
     for line in out.split("\n"):
         header = _HEADER.match(line)
         if header:
             sha, orig = header.group(1), int(header.group(2))
+        elif line.startswith("filename "):
+            name = line[len("filename "):]
         elif line.startswith("\t"):
-            lines.append((sha, orig, line[1:]))
+            lines.append((sha, orig, name, line[1:]))
     return lines
 
 
@@ -75,10 +82,10 @@ def _owner(receipts: list[Receipt], path: str, line_no: int) -> Receipt | None:
 def attribute(repo: Path, rel_path: str) -> list[Line]:
     by_sha: dict[str, list[Receipt]] = {}
     result = []
-    for number, (sha, orig, text) in enumerate(_blame(repo, rel_path), start=1):
+    for number, (sha, orig, name, text) in enumerate(_blame(repo, rel_path), start=1):
         if sha not in by_sha:
             by_sha[sha] = [] if sha == UNCOMMITTED else notes.read(repo, sha)
-        result.append(Line(number, text, sha, _owner(by_sha[sha], rel_path, orig)))
+        result.append(Line(number, text, sha, _owner(by_sha[sha], name, orig)))
     return result
 
 

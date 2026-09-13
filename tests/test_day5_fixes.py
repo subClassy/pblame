@@ -58,6 +58,26 @@ def test_rename_is_detected_not_treated_as_rewrite(repo):
     assert diff_hunks(repo, t1, t2) == {}  # a pure rename changes no lines
 
 
+def test_attribution_committed_before_a_rename_survives_it(repo):
+    """The receipt is already in a note under the old path; blame must still
+    find it after the file is renamed in a later commit."""
+    from pblame import blame
+
+    (repo / "old.css").write_text("a\nb\nc\n")
+    sha = commit(repo, "add styles")
+    r = make_receipt(text="write the styles")
+    r.post_tree = "b" * 40
+    r.files = [FileChange(path="old.css", ranges=[(1, 3)])]
+    notes.write(repo, sha, [r])
+
+    run_git(repo, "mv", "old.css", "new.css")
+    commit(repo, "rename it")
+
+    owners = {l.receipt.prompt.text if l.receipt else None
+              for l in blame.attribute(repo, "new.css")}
+    assert owners == {"write the styles"}
+
+
 def test_earlier_receipt_follows_a_rename(repo):
     submit(repo, "write the styles")
     (repo / "old.css").write_text("a\nb\nc\n")
