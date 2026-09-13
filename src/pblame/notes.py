@@ -45,13 +45,45 @@ def write(repo: Path, sha: str, receipts: list[Receipt]) -> None:
         input_text=payload)
 
 
+def _union_ranges(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(a + b):
+        if merged and start <= merged[-1][1] + 1:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _absorb(target: Receipt, source: Receipt) -> None:
+    """Fold source's files into target's, unioning ranges per path."""
+    by_path = {f.path: f for f in target.files}
+    for f in source.files:
+        if f.path in by_path:
+            by_path[f.path].ranges = _union_ranges(by_path[f.path].ranges, f.ranges)
+        else:
+            target.files.append(f)
+            by_path[f.path] = f
+
+
 def merge_into(repo: Path, sha: str, receipts: list[Receipt]) -> None:
-    """Add receipts to a commit's note, deduplicating by prompt id."""
+    """Add receipts to a commit's note.
+
+    The same prompt can legitimately reach one commit twice: attach splits a
+    receipt across commits by file, and a later squash reunites those
+    commits. Dropping the second copy would lose its files, so copies of one
+    prompt are merged, not deduplicated.
+    """
     existing = read(repo, sha)
-    known = {r.prompt.id for r in existing}
-    combined = existing + [r for r in receipts if r.prompt.id not in known]
-    if combined:
-        write(repo, sha, combined)
+    by_id = {r.prompt.id: r for r in existing}
+    for r in receipts:
+        if r.prompt.id in by_id:
+            _absorb(by_id[r.prompt.id], r)
+        else:
+            existing.append(r)
+            by_id[r.prompt.id] = r
+    if existing:
+        write(repo, sha, existing)
 
 
 def remove(repo: Path, sha: str) -> None:

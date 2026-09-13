@@ -235,6 +235,56 @@ def test_remap_carries_note_onto_an_amended_commit(repo):
     assert notes.read(repo, old) == []
 
 
+def test_squash_reunites_a_receipt_split_across_commits(repo):
+    """Attach splits one prompt across two partial commits by file; a squash
+    of those commits must reunite its files, not drop the second copy."""
+    (repo / "seed.txt").write_text("seed\n")
+    commit(repo, "seed")
+
+    submit(repo, "touch both files")
+    (repo / "a.py").write_text("aaa\n")
+    (repo / "b.py").write_text("bbb\n")
+    stop(repo)
+
+    run_git(repo, "add", "a.py")
+    run_git(repo, "commit", "-q", "-m", "only a")
+    first = git(repo, "rev-parse", "HEAD")
+    notes.attach_staged(repo, first)
+    second = commit(repo, "now b")
+    notes.attach_staged(repo, second)
+
+    # Squash: one new commit with the second's tree replaces both.
+    run_git(repo, "reset", "-q", "--soft", "HEAD~2")
+    run_git(repo, "commit", "-q", "-m", "squashed")
+    squashed = git(repo, "rev-parse", "HEAD")
+    assert notes.remap(repo, first, squashed) == 1
+    assert notes.remap(repo, second, squashed) == 1
+
+    reunited = notes.read(repo, squashed)
+    assert len(reunited) == 1
+    assert files_of(reunited[0]) == {"a.py": [(1, 1)], "b.py": [(1, 1)]}
+
+
+def test_merge_into_unions_overlapping_ranges_for_one_path(repo):
+    (repo / "a.py").write_text("x\n")
+    sha = commit(repo, "seed")
+    r1 = make_receipt(text="same prompt")
+    r1.post_tree = "b" * 40
+    r1.files = [FileChange(path="a.py", ranges=[(1, 3), (10, 12)])]
+    r2 = copy_with_files(r1, [FileChange(path="a.py", ranges=[(3, 5), (13, 13)])])
+
+    notes.merge_into(repo, sha, [r1])
+    notes.merge_into(repo, sha, [r2])
+    assert files_of(notes.read(repo, sha)[0]) == {"a.py": [(1, 5), (10, 13)]}
+
+
+def copy_with_files(receipt, files):
+    import copy
+    c = copy.deepcopy(receipt)
+    c.files = files
+    return c
+
+
 def test_init_installs_the_post_rewrite_hook(repo):
     names = {p.name for p in git_hooks.install_hooks(repo)}
     assert names == {"post-commit", "post-rewrite"}
