@@ -185,3 +185,25 @@ def install(repo: Path) -> Path:
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     git_hooks.ensure_ignored(repo, f".claude/{LOCAL_SETTINGS}")
     return path
+
+
+def uninstall(repo: Path) -> list[Path]:
+    """Remove pblame's hooks from both settings files, keeping everything
+    else. A file left holding nothing is deleted."""
+    touched = []
+    for name in (LOCAL_SETTINGS, SHARED_SETTINGS):
+        path = repo / ".claude" / name
+        if not path.exists():
+            continue
+        try:
+            data = _read_settings(path)
+        except json.JSONDecodeError:
+            continue  # not ours to fix; leave it alone
+        if not _strip_pblame_hooks(data):
+            continue
+        if data:
+            path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        else:
+            path.unlink()
+        touched.append(path)
+    return touched

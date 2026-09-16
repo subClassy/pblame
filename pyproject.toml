@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "pblame"
 version = "0.1.0"
 description = "git blame, for the prompt — records the prompt behind AI-generated code changes"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]

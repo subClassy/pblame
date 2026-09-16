@@ -1,12 +1,13 @@
 import argparse
 import json
 import os
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 
 from . import adapters, blame, doctor, git_hooks, notes
-from .snapshot import GitError, repo_root
+from .snapshot import GitError, git, repo_root
 
 
 def cmd_hook(args: argparse.Namespace) -> int:
@@ -48,6 +49,34 @@ def cmd_init(args: argparse.Namespace) -> int:
     for hook in hooks:
         print(f"pblame: installed {hook.name} hook in {hook}")
     print("pblame: recording starts with the next Claude Code session in this repo")
+    return 0
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    try:
+        repo = repo_root(Path(args.repo).resolve())
+    except GitError as e:
+        print(f"pblame: {args.repo} is not a git repository ({e})", file=sys.stderr)
+        return 1
+
+    for path in adapters.get("claude").uninstall(repo) + git_hooks.uninstall_hooks(repo):
+        print(f"pblame: removed hooks from {path}")
+    print("pblame: recording stopped for this repo")
+
+    if not args.purge:
+        print("pblame: recorded history kept (refs/notes/pblame and .git/pblame/);"
+              " add --purge to delete it")
+        return 0
+
+    state_dir = repo / ".git" / "pblame"
+    if state_dir.exists():
+        shutil.rmtree(state_dir)
+        print(f"pblame: deleted {state_dir}")
+    try:
+        git(repo, "update-ref", "-d", notes.NOTES_REF)
+        print(f"pblame: deleted {notes.NOTES_REF} - every recorded prompt is gone")
+    except GitError:
+        pass  # no notes were ever written
     return 0
 
 
@@ -151,6 +180,12 @@ def main(argv: list[str] | None = None) -> int:
     init = sub.add_parser("init", help="install recording hooks in a repo")
     init.add_argument("repo", nargs="?", default=".", help="repo to record (default: cwd)")
     init.set_defaults(func=cmd_init)
+
+    un = sub.add_parser("uninstall", help="remove recording hooks from a repo")
+    un.add_argument("repo", nargs="?", default=".")
+    un.add_argument("--purge", action="store_true",
+                    help="also delete recorded history (notes ref and .git/pblame/)")
+    un.set_defaults(func=cmd_uninstall)
 
     hook = sub.add_parser("hook", help="handle an agent hook event (JSON on stdin)")
     hook.add_argument("agent", choices=adapters.names())

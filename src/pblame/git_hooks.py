@@ -94,6 +94,26 @@ def _install(repo: Path, name: str, section: str) -> Path:
     return path
 
 
+def uninstall_hooks(repo: Path) -> list[Path]:
+    """Remove pblame's sections from the git hooks, leaving any other hook
+    content untouched; a hook file that held nothing else is deleted."""
+    removed = []
+    for name in HOOKS:
+        path = repo / ".git" / "hooks" / name
+        if not path.exists():
+            continue
+        content = path.read_text(encoding="utf-8")
+        if MARK_START not in content:
+            continue
+        rest = _remove_section(content)
+        if rest.strip() in ("", "#!/bin/sh"):
+            path.unlink()
+        else:
+            path.write_text(rest, encoding="utf-8", newline="\n")
+        removed.append(path)
+    return removed
+
+
 def _remove_section(content: str) -> str:
     kept = []
     skipping = False
