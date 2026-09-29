@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import git_hooks, notes, staging
+from . import config, git_hooks, notes, staging
 from .adapters import claude_code
 from .snapshot import GitError, git, snapshot_tree
 
@@ -163,11 +163,59 @@ def _check_history(repo: Path) -> list[Check]:
     return out
 
 
+def _check_secrets(repo: Path) -> list[Check]:
+    """Report secrets sitting in recorded prompts.
+
+    They are not a failure — the record is as private as the code beside it,
+    and redaction happens when a receipt leaves the machine. But nobody should
+    be surprised by what is in there, least of all on the day they turn
+    sharing on.
+    """
+    try:
+        cfg = config.load(repo)
+    except config.ConfigError as e:
+        return [Check(FAIL, "config", str(e))]
+
+    found: dict[str, str] = {}
+    prompts = 0
+    receipts = list(staging.load(repo).receipts)
+    try:
+        for line in git(repo, "notes", "--ref", notes.NOTES_REF, "list").splitlines():
+            parts = line.split()
+            if len(parts) > 1:
+                receipts += notes.read(repo, parts[1])
+    except GitError:
+        pass
+
+    for r in receipts:
+        if r.prompt.secrets:
+            prompts += 1
+            for name, severity in r.prompt.secrets.items():
+                found.setdefault(name, severity)
+
+    out = [Check(PASS, "sharing", "enabled, remote " + cfg.share.remote
+                 if cfg.share.enabled else "off - prompts stay on this machine")]
+    if not found:
+        out.append(Check(PASS, "secrets in prompts", "none detected"))
+        return out
+
+    worst = next((s for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
+                  if s in found.values()), "LOW")
+    detail = f"{prompts} prompt(s) contain {', '.join(sorted(found))}"
+    # Only a problem if it is about to be published.
+    status = FAIL if (cfg.share.enabled and worst in ("CRITICAL", "HIGH")) else WARN
+    out.append(Check(status, "secrets in prompts", detail + f" (worst {worst})"))
+    if cfg.share.enabled:
+        out.append(Check(PASS, "", "these are redacted on push; `pblame push --dry-run`"
+                                   " shows exactly what would be sent"))
+    return out
+
+
 def run(repo: Path) -> list[Check]:
     checks = _check_agent_hooks(repo) + _check_git_hooks(repo)
     checks.append(_check_recording_works(repo))
     checks.append(_check_hook_log(repo))
-    checks += _check_staging(repo) + _check_history(repo)
+    checks += _check_staging(repo) + _check_history(repo) + _check_secrets(repo)
     return checks
 
 

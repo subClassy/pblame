@@ -127,3 +127,48 @@ def test_broken_config_raises_rather_than_silently_ignoring(repo):
     (repo / config.FILENAME).write_text("{not json")
     with pytest.raises(config.ConfigError):
         config.load(repo)
+
+
+# --- capture records detections, doctor surfaces them -------------------
+
+def test_capture_stores_detections_but_not_a_redacted_prompt(repo):
+    from pblame import staging
+    from pblame.adapters import claude_code
+
+    secret = "AKIAIOSFODNN7EXAMPLE"
+    claude_code.handle({"hook_event_name": "UserPromptSubmit", "cwd": str(repo),
+                        "session_id": "s", "prompt": f"deploy with {secret}"})
+    prompt = staging.load(repo).receipts[0].prompt
+
+    assert secret in prompt.text, "capture must never mangle the author's record"
+    assert prompt.secrets == {"AWS_KEY": "CRITICAL"}
+
+
+def test_doctor_warns_about_recorded_secrets(repo):
+    from pblame import doctor
+    from pblame.adapters import claude_code
+
+    claude_code.install(repo)
+    claude_code.handle({"hook_event_name": "UserPromptSubmit", "cwd": str(repo),
+                        "session_id": "s", "prompt": "key AKIAIOSFODNN7EXAMPLE"})
+
+    checks = {c.label: c for c in doctor.run(repo)}
+    assert "AWS_KEY" in checks["secrets in prompts"].detail
+    # Not shared yet, so it is a warning rather than a failure.
+    assert checks["secrets in prompts"].status == doctor.WARN
+    assert "off" in checks["sharing"].detail
+
+
+def test_doctor_fails_when_a_high_severity_secret_is_shareable(repo):
+    import json as _json
+    from pblame import config, doctor
+    from pblame.adapters import claude_code
+
+    (repo / config.FILENAME).write_text(_json.dumps({"share": {"enabled": True}}))
+    claude_code.install(repo)
+    claude_code.handle({"hook_event_name": "UserPromptSubmit", "cwd": str(repo),
+                        "session_id": "s", "prompt": "key AKIAIOSFODNN7EXAMPLE"})
+
+    checks = {c.label: c for c in doctor.run(repo)}
+    assert checks["secrets in prompts"].status == doctor.FAIL
+    assert "enabled" in checks["sharing"].detail
