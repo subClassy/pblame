@@ -44,7 +44,11 @@ def redact_receipt(receipt, cfg) -> tuple[object, list]:
     it costs nothing to say so."""
     result = redact.redact(receipt.prompt.text, cfg)
     out = copy.deepcopy(receipt)
-    out.prompt = dataclasses.replace(out.prompt, text=result.text)
+    # Report what redaction just did, not what an old capture-time scan
+    # recorded: receipts written before that scan existed carry nothing, and
+    # patterns change over time.
+    out.prompt = dataclasses.replace(
+        out.prompt, text=result.text, secrets=redact.summarize(result.detections))
     return out, result.detections
 
 

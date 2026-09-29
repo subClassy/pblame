@@ -186,6 +186,19 @@ def _redact_high_entropy(text: str, mode: str) -> tuple[str, list[Detection]]:
     return text, hits
 
 
+_SEVERITY_ORDER = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
+def summarize(detections: list[Detection]) -> dict[str, str]:
+    """{name: worst severity seen} — what gets stored on a receipt."""
+    found: dict[str, str] = {}
+    for d in detections:
+        if (d.name not in found
+                or _SEVERITY_ORDER.index(d.severity) > _SEVERITY_ORDER.index(found[d.name])):
+            found[d.name] = d.severity
+    return found
+
+
 def scan(text: str, cfg: RedactionConfig | None = None) -> list[Detection]:
     """What redaction would find, without changing anything. Used at capture
     so `doctor` can report secrets sitting in the record."""

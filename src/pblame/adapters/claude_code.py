@@ -95,12 +95,7 @@ def _scan_secrets(repo: Path, text: str) -> dict[str, str]:
         cfg = config.load(repo).redaction
     except config.ConfigError:
         cfg = None  # a typo in config must never cost us the receipt
-    found: dict[str, str] = {}
-    order = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
-    for d in redact.scan(text, cfg):
-        if d.name not in found or order.index(d.severity) > order.index(found[d.name]):
-            found[d.name] = d.severity
-    return found
+    return redact.summarize(redact.scan(text, cfg))
 
 
 def _close(repo: Path, receipts: list[Receipt], payload: dict, post_tree: str) -> None:
