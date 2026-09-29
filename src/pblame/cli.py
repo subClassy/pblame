@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import adapters, blame, doctor, git_hooks, notes
+from . import adapters, blame, config, doctor, git_hooks, notes, redact
 from .snapshot import GitError, git, repo_root
 
 
@@ -133,6 +133,40 @@ def cmd_blame(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_redact(args: argparse.Namespace) -> int:
+    """Run the engine over text so patterns can be tuned without recording
+    anything. Redacted text goes to stdout, the summary to stderr, so the
+    output stays pipeable."""
+    cfg = None
+    try:
+        cfg = config.load(repo_root(Path.cwd())).redaction
+    except config.ConfigError as e:
+        print(f"pblame: {e}", file=sys.stderr)
+        return 1
+    except GitError:
+        pass  # a plain text filter; no repo required
+
+    if args.file in (None, "-"):
+        text = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    else:
+        try:
+            text = Path(args.file).read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            print(f"pblame: cannot read {args.file}: {e}", file=sys.stderr)
+            return 1
+
+    result = redact.redact(text, cfg)
+    print(result.text, end="" if text.endswith("\n") else "\n")
+    if result.detections:
+        found = ", ".join(f"{n}x{c}" if c > 1 else n
+                          for n, c in sorted(result.counts.items()))
+        print(f"pblame: {len(result.detections)} detection(s): {found}"
+              f" (worst {result.worst()})", file=sys.stderr)
+    else:
+        print("pblame: nothing detected", file=sys.stderr)
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
@@ -206,6 +240,10 @@ def main(argv: list[str] | None = None) -> int:
     show = sub.add_parser("show", help="show all prompt receipts recorded for a commit")
     show.add_argument("commit", nargs="?", default="HEAD")
     show.set_defaults(func=cmd_show)
+
+    red = sub.add_parser("redact", help="show what redaction would do to some text")
+    red.add_argument("file", nargs="?", default="-", help="file to read, or - for stdin")
+    red.set_defaults(func=cmd_redact)
 
     doc = sub.add_parser("doctor", help="check that this repo is actually being recorded")
     doc.add_argument("repo", nargs="?", default=".")

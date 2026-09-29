@@ -172,3 +172,29 @@ def test_doctor_fails_when_a_high_severity_secret_is_shareable(repo):
     checks = {c.label: c for c in doctor.run(repo)}
     assert checks["secrets in prompts"].status == doctor.FAIL
     assert "enabled" in checks["sharing"].detail
+
+
+def test_redact_command_prints_clean_text_and_a_summary(repo, capsys, monkeypatch):
+    from pblame.cli import main
+
+    monkeypatch.chdir(repo)
+    (repo / "prompt.txt").write_text("deploy with AKIAIOSFODNN7EXAMPLE to prod\n")
+    assert main(["redact", "prompt.txt"]) == 0
+
+    out, err = capsys.readouterr()
+    assert out == "deploy with [REDACTED_AWS_KEY] to prod\n"   # stdout is pipeable
+    assert "AWS_KEY" in err and "CRITICAL" in err              # summary on stderr
+
+
+def test_redact_command_honours_repo_config(repo, capsys, monkeypatch):
+    import json as _json
+    from pblame import config
+    from pblame.cli import main
+
+    monkeypatch.chdir(repo)
+    (repo / config.FILENAME).write_text(_json.dumps(
+        {"redaction": {"custom_patterns": [
+            {"pattern": "CUST-[0-9]+", "replacement": "[REDACTED_CUSTOMER_ID]"}]}}))
+    (repo / "p.txt").write_text("ticket from CUST-99021\n")
+    main(["redact", "p.txt"])
+    assert "[REDACTED_CUSTOMER_ID]" in capsys.readouterr().out
