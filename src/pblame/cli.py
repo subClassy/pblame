@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import adapters, blame, config, doctor, git_hooks, notes, redact
+from . import adapters, blame, config, doctor, git_hooks, notes, redact, share
 from .snapshot import GitError, git, repo_root
 
 
@@ -167,6 +167,58 @@ def cmd_redact(args: argparse.Namespace) -> int:
     return 0
 
 
+def _repo_and_config(path: str = "."):
+    repo = repo_root(Path(path).resolve())
+    return repo, config.load(repo)
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    try:
+        repo, cfg = _repo_and_config()
+        if args.remote:
+            cfg.share.remote = args.remote
+    except (GitError, config.ConfigError) as e:
+        print(f"pblame: {e}", file=sys.stderr)
+        return 1
+
+    if args.dry_run:
+        planned = share.plan(repo, cfg)
+        print("pblame: this is what would be sent to "
+              f"{cfg.share.remote}/{notes.NOTES_REF}:")
+        print(share.describe(planned, redacted_only=args.secrets_only))
+        if not cfg.share.enabled:
+            print("pblame: sharing is off; nothing has been sent")
+        return 0
+
+    try:
+        planned = share.push(repo, cfg)
+    except share.ShareDisabled as e:
+        print(f"pblame: {e}", file=sys.stderr)
+        return 1
+    except GitError as e:
+        print(f"pblame: push failed: {e}", file=sys.stderr)
+        return 1
+
+    total = sum(len(p.receipts) for p in planned)
+    secrets = sum(len(p.detections) for p in planned)
+    print(f"pblame: shared {total} prompt(s) from {len(planned)} commit(s)"
+          f" to {cfg.share.remote}" + (f", {secrets} secret(s) redacted" if secrets else ""))
+    return 0
+
+
+def cmd_pull(args: argparse.Namespace) -> int:
+    try:
+        repo, cfg = _repo_and_config()
+        if args.remote:
+            cfg.share.remote = args.remote
+        count = share.pull(repo, cfg)
+    except (GitError, config.ConfigError) as e:
+        print(f"pblame: pull failed: {e}", file=sys.stderr)
+        return 1
+    print(f"pblame: shared history now covers {count} commit(s)")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
@@ -240,6 +292,18 @@ def main(argv: list[str] | None = None) -> int:
     show = sub.add_parser("show", help="show all prompt receipts recorded for a commit")
     show.add_argument("commit", nargs="?", default="HEAD")
     show.set_defaults(func=cmd_show)
+
+    push = sub.add_parser("push", help="share the record: redact, then push the notes ref")
+    push.add_argument("--dry-run", action="store_true",
+                      help="print exactly what would be sent, and send nothing")
+    push.add_argument("--secrets-only", action="store_true",
+                      help="with --dry-run, show only prompts that had something redacted")
+    push.add_argument("--remote")
+    push.set_defaults(func=cmd_push)
+
+    pull = sub.add_parser("pull", help="fetch and merge what teammates shared")
+    pull.add_argument("--remote")
+    pull.set_defaults(func=cmd_pull)
 
     red = sub.add_parser("redact", help="show what redaction would do to some text")
     red.add_argument("file", nargs="?", default="-", help="file to read, or - for stdin")

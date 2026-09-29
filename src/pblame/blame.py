@@ -84,7 +84,7 @@ def attribute(repo: Path, rel_path: str) -> list[Line]:
     result = []
     for number, (sha, orig, name, text) in enumerate(_blame(repo, rel_path), start=1):
         if sha not in by_sha:
-            by_sha[sha] = [] if sha == UNCOMMITTED else notes.read(repo, sha)
+            by_sha[sha] = [] if sha == UNCOMMITTED else notes.read_merged(repo, sha)
         result.append(Line(number, text, sha, _owner(by_sha[sha], name, orig)))
     return result
 
