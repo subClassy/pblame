@@ -25,24 +25,90 @@ from .snapshot import (
 NOTES_REF = "refs/notes/pblame"
 
 
+VERSION_LINE = '{"pblame":1}'
+
+
+def parse(text: str) -> list[Receipt]:
+    """Receipts from a note body, in either format.
+
+    Current format is JSONL: a version line, then one compact receipt per
+    line. That makes `git notes merge --strategy=union` a correct merge, since
+    git's merge strategies are line-based — a line-wise union of two
+    pretty-printed JSON documents would not be valid JSON.
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    # Legacy: a single pretty-printed {"version": 1, "receipts": [...]}.
+    try:
+        whole = json.loads(text)
+    except json.JSONDecodeError:
+        whole = None
+    if isinstance(whole, dict) and "receipts" in whole:
+        return _fold(_receipts_from(whole["receipts"]))
+
+    objects = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a conflicted or foreign line must not lose the rest
+        if isinstance(obj, dict) and "prompt" in obj:
+            objects.append(obj)
+    return _fold(_receipts_from(objects))
+
+
+def _receipts_from(objects: list) -> list[Receipt]:
+    out = []
+    for obj in objects:
+        try:
+            out.append(Receipt.from_dict(obj))
+        except (KeyError, TypeError, ValueError):
+            continue  # skip what we cannot read rather than losing the note
+    return out
+
+
+def _fold(receipts: list[Receipt]) -> list[Receipt]:
+    """Collapse copies of one prompt, unioning ranges per path.
+
+    A union-merged note legitimately holds the same prompt twice: attach
+    splits a receipt across commits by file, and two developers can each
+    hold a different half.
+    """
+    out: list[Receipt] = []
+    by_id: dict[str, Receipt] = {}
+    for r in receipts:
+        if r.prompt.id in by_id:
+            _absorb(by_id[r.prompt.id], r)
+        else:
+            out.append(r)
+            by_id[r.prompt.id] = r
+    return out
+
+
 def read(repo: Path, sha: str) -> list[Receipt]:
     try:
-        out = git(repo, "notes", "--ref", NOTES_REF, "show", sha)
+        return parse(git(repo, "notes", "--ref", NOTES_REF, "show", sha, strip=False))
     except GitError:
         return []  # no note on this commit
-    try:
-        raw = json.loads(out)
-    except json.JSONDecodeError:
-        return []
-    return [Receipt.from_dict(d) for d in raw.get("receipts", [])]
+
+
+def serialize(receipts: list[Receipt]) -> str:
+    # sort_keys makes each line byte-stable, so cat_sort_uniq can dedup them.
+    lines = [VERSION_LINE] + [
+        json.dumps(r.to_dict(), separators=(",", ":"), sort_keys=True)
+        for r in receipts
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def write(repo: Path, sha: str, receipts: list[Receipt]) -> None:
-    payload = json.dumps(
-        {"version": 1, "receipts": [r.to_dict() for r in receipts]}, indent=2
-    )
     git(repo, "notes", "--ref", NOTES_REF, "add", "-f", "-F", "-", sha,
-        input_text=payload)
+        input_text=serialize(receipts))
 
 
 def _union_ranges(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:

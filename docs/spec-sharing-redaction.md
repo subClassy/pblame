@@ -183,7 +183,24 @@ are there unredacted high-severity detections in shareable history.
 - Retroactively redacting already-recorded local history (`uninstall --purge` is the
   blunt tool that exists).
 
-## Open questions
+## Decisions (settled 2026-09-28)
+
+1. **No reverse map.** Local verbatim, shared redacted. A placeholder-to-secret map
+   would be a secrets file on disk; not worth it.
+2. **Ship the noise.** A prompt that is mostly secret goes out mostly redacted rather
+   than being dropped. A reader seeing "this prompt was mostly secret" is information,
+   not noise. Revisit if it turns out to be common.
+3. **Full prompt text goes to the remote**, not a hash plus metadata. The reason is
+   bigger than review: a shared corpus of prompts is a **prompt library** for the
+   team - searchable, reusable, showing how a colleague got a good result. That is a
+   benefit to the person *doing* the sharing, not only to the reviewer, which is a far
+   better adoption wedge than review alone. Two consequences:
+   - Phase 3 (query/search) is worth more than the roadmap assumes, and may deserve to
+     move ahead of Phase 2.
+   - Redaction quality now affects library quality, so false positives cost more than
+     first thought. The `lodash@4.17.21` class of bug is not cosmetic.
+
+## Still open
 
 1. **Should redaction be reversible for the author?** Keeping a local map from placeholder
    back to the original would let the author read their own history in full while the
