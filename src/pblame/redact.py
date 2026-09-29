@@ -66,8 +66,12 @@ RULES: tuple[Rule, ...] = (
          secret_group=4),
     Rule("EMAIL", "MEDIUM",
          re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
+    # The drive letter must be case-insensitive: Claude Code writes `c:\Users\…`
+    # in its editor-context paths, and requiring `C:` let a real username
+    # through to a remote. Forward slashes too — git and shells both emit them.
     Rule("HOME_PATH", "LOW",
-         re.compile(r"(?:/Users/|/home/|[A-Z]:\\Users\\)([A-Za-z0-9_.-]+)"), secret_group=1),
+         re.compile(r"(?i)(?:/Users/|/home/|[A-Z]:[\\/]Users[\\/])([A-Za-z0-9_.-]+)"),
+         secret_group=1),
     # blameprompt has this on by default; it eats `typescript@beta` and
     # `metaquity@MacBook` alike, so it is opt-in via enable_patterns.
     Rule("SHELL_HOST", "LOW",

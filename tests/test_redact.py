@@ -198,3 +198,16 @@ def test_redact_command_honours_repo_config(repo, capsys, monkeypatch):
     (repo / "p.txt").write_text("ticket from CUST-99021\n")
     main(["redact", "p.txt"])
     assert "[REDACTED_CUSTOMER_ID]" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("path", [
+    r"c:\Users\subCl\Documents\x.py",   # lowercase drive: leaked a real username
+    r"C:\Users\subCl\Documents\x.py",
+    "C:/Users/subCl/Documents/x.py",
+    "/Users/subCl/x",
+    "/home/subCl/x",
+])
+def test_home_paths_redact_the_username_on_every_platform_spelling(path):
+    out = r(path)
+    assert "subCl" not in out.text, f"username leaked from {path!r}"
+    assert "HOME_PATH" in out.counts

@@ -167,3 +167,33 @@ def test_pull_with_no_remote_notes_is_harmless(tmp_path, repo, origin):
 
 def test_push_with_nothing_recorded_does_nothing(repo, origin):
     assert share.push(repo, cfg_of(repo)) == []
+
+
+def test_show_includes_a_teammates_shared_prompts(tmp_path, repo, origin, capsys):
+    from pblame.cli import main
+
+    sha = record(repo, "alice wrote this", body="base\nhelper\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    bob = clone(origin, tmp_path / "bob", "bob")
+    share.pull(bob, cfg_of(bob))
+
+    import os
+    cwd = os.getcwd()
+    try:
+        os.chdir(bob)
+        assert main(["show", sha]) == 0
+    finally:
+        os.chdir(cwd)
+    assert "alice wrote this" in capsys.readouterr().out
+
+
+def test_editor_context_paths_do_not_leak_a_username(repo, origin):
+    """Found on real data: the shared copy carried the Windows home path."""
+    sha = record(repo, r"look at c:\Users\subCl\Documents\app.py", body="base\nx\n")
+    share.push(repo, cfg_of(repo))
+
+    shared = notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
+    assert "subCl" not in shared
+    assert "subCl" in notes.read(repo, sha)[0].prompt.text  # local keeps it

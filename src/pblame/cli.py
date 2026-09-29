@@ -237,7 +237,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     except GitError as e:
         print(f"pblame: {e}", file=sys.stderr)
         return 1
-    receipts = notes.read(repo, args.commit)
+    # Merged, so a teammate's shared prompts show up and not just our own.
+    receipts = notes.read_merged(repo, args.commit)
     if not receipts:
         print(f"pblame: no prompt receipts recorded for {args.commit}")
         return 0
