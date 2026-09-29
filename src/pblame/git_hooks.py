@@ -38,31 +38,48 @@ def own_binary() -> str:
     return "pblame"  # fall back to PATH
 
 
-def _post_commit_section() -> str:
-    # Hooks run under git's sh even on Windows; forward slashes work there.
+def _section(subcommand: str) -> str:
+    """One marker-fenced hook body running `pblame <subcommand>`.
+
+    Hooks run under git's sh even on Windows, so forward slashes are fine. The
+    log directory is created here rather than assumed: a fresh clone has no
+    `.git/pblame`, and a redirect into a missing directory made git print an
+    error on every pull. GIT_DIR is set by git for hooks, which also keeps this
+    working where `.git` is a file rather than a directory.
+    """
     exe = own_binary().replace("\\", "/")
     return (
         f"{MARK_START}\n"
-        f'"{exe}" attach 2>>.git/pblame/hook.log || true\n'
+        'PBLAME_DIR="${GIT_DIR:-.git}/pblame"\n'
+        'mkdir -p "$PBLAME_DIR" 2>/dev/null || true\n'
+        f'"{exe}" {subcommand} 2>>"$PBLAME_DIR/hook.log" || true\n'
         f"{MARK_END}\n"
     )
 
 
-def _post_rewrite_section() -> str:
-    # amend/rebase feed "<old-sha> <new-sha>" pairs on stdin; without this the
-    # note is stranded on a commit no longer reachable.
-    exe = own_binary().replace("\\", "/")
-    return (
-        f"{MARK_START}\n"
-        f'"{exe}" rewrite 2>>.git/pblame/hook.log || true\n'
-        f"{MARK_END}\n"
-    )
-
-
+# post-commit  attach staged receipts to the commit just made.
+# post-rewrite amend/rebase feed "<old> <new>" pairs on stdin; without this a
+#              note is stranded on a commit no longer reachable.
+# pre-push     share on push, so nobody has to remember `pblame push`. No
+#              recursion guard is needed: the inner notes push passes
+#              --no-verify. Run in the foreground, unlike blameprompt — one
+#              extra round trip for a tiny ref beats a backgrounded failure
+#              nobody sees, a lesson this project has already paid for.
+# post-merge   when you pull code, pull the prompts that came with it.
+#              post-checkout looks like the place for a fresh clone, but git
+#              never clones .git/hooks, so a new teammate runs `pblame init`
+#              regardless — and hooking every branch switch would mean a
+#              network fetch each time.
 HOOKS = {
-    "post-commit": _post_commit_section,
-    "post-rewrite": _post_rewrite_section,
+    "post-commit": lambda: _section("attach"),
+    "post-rewrite": lambda: _section("rewrite"),
+    "pre-push": lambda: _section("push --if-enabled"),
+    "post-merge": lambda: _section("pull --if-enabled"),
 }
+
+# These only matter once sharing is on, so doctor treats them as optional
+# until then.
+SHARING_HOOKS = frozenset({"pre-push", "post-merge"})
 
 
 def install_hooks(repo: Path) -> list[Path]:
@@ -71,7 +88,7 @@ def install_hooks(repo: Path) -> list[Path]:
 
 
 def install_post_commit(repo: Path) -> Path:
-    return _install(repo, "post-commit", _post_commit_section())
+    return _install(repo, "post-commit", HOOKS["post-commit"]())
 
 
 def _install(repo: Path, name: str, section: str) -> Path:

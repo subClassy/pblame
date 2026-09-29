@@ -49,6 +49,13 @@ def cmd_init(args: argparse.Namespace) -> int:
     for hook in hooks:
         print(f"pblame: installed {hook.name} hook in {hook}")
     print("pblame: recording starts with the next Claude Code session in this repo")
+    # A fresh clone has no hooks (git never clones them) and its first pull is
+    # a no-op, so joining a team that already shares needs one explicit step.
+    try:
+        if git(repo, "remote").split() and config.load(repo).share.enabled:
+            print("pblame: run `pblame pull` to fetch prompts your team already shared")
+    except (GitError, config.ConfigError):
+        pass
     return 0
 
 
@@ -172,6 +179,30 @@ def _repo_and_config(path: str = "."):
     return repo, config.load(repo)
 
 
+def cmd_share(args: argparse.Namespace) -> int:
+    """Opt this developer in or out. Writes the personal, gitignored file, so
+    one person turning sharing on never turns it on for the whole team."""
+    try:
+        repo = repo_root(Path.cwd())
+    except GitError as e:
+        print(f"pblame: {e}", file=sys.stderr)
+        return 1
+
+    path = repo / config.LOCAL_FILENAME
+    if args.off:
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw.setdefault("share", {})["enabled"] = False
+        path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        print(f"pblame: sharing off ({path.name}); prompts stay on this machine")
+        return 0
+
+    config.enable_sharing(repo, args.remote)
+    git_hooks.ensure_ignored(repo, config.LOCAL_FILENAME)
+    print(f"pblame: sharing on ({path.name}, gitignored - it is your choice, not the team's)")
+    print("pblame: `pblame push --dry-run` shows exactly what would be sent")
+    return 0
+
+
 def cmd_push(args: argparse.Namespace) -> int:
     try:
         repo, cfg = _repo_and_config()
@@ -180,6 +211,9 @@ def cmd_push(args: argparse.Namespace) -> int:
     except (GitError, config.ConfigError) as e:
         print(f"pblame: {e}", file=sys.stderr)
         return 1
+
+    if args.if_enabled and not cfg.share.enabled:
+        return 0  # run from a hook; sharing is off, so there is nothing to say
 
     if args.dry_run:
         planned = share.plan(repo, cfg)
@@ -211,6 +245,8 @@ def cmd_pull(args: argparse.Namespace) -> int:
         repo, cfg = _repo_and_config()
         if args.remote:
             cfg.share.remote = args.remote
+        if args.if_enabled and not cfg.share.enabled:
+            return 0
         count = share.pull(repo, cfg)
     except (GitError, config.ConfigError) as e:
         print(f"pblame: pull failed: {e}", file=sys.stderr)
@@ -294,16 +330,25 @@ def main(argv: list[str] | None = None) -> int:
     show.add_argument("commit", nargs="?", default="HEAD")
     show.set_defaults(func=cmd_show)
 
+    sh = sub.add_parser("share", help="opt in (or out) of sharing prompts with your team")
+    sh.add_argument("--off", action="store_true", help="stop sharing")
+    sh.add_argument("--remote")
+    sh.set_defaults(func=cmd_share)
+
     push = sub.add_parser("push", help="share the record: redact, then push the notes ref")
     push.add_argument("--dry-run", action="store_true",
                       help="print exactly what would be sent, and send nothing")
     push.add_argument("--secrets-only", action="store_true",
                       help="with --dry-run, show only prompts that had something redacted")
     push.add_argument("--remote")
+    push.add_argument("--if-enabled", action="store_true",
+                      help="do nothing unless sharing is on (used by the pre-push hook)")
     push.set_defaults(func=cmd_push)
 
     pull = sub.add_parser("pull", help="fetch and merge what teammates shared")
     pull.add_argument("--remote")
+    pull.add_argument("--if-enabled", action="store_true",
+                      help="do nothing unless sharing is on (used by the post-merge hook)")
     pull.set_defaults(func=cmd_pull)
 
     red = sub.add_parser("redact", help="show what redaction would do to some text")

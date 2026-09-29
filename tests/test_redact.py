@@ -112,15 +112,29 @@ def test_config_defaults_to_not_sharing(repo):
     assert cfg.redaction.mode == "replace"
 
 
-def test_repo_config_is_read(repo):
+def test_team_config_sets_redaction_but_cannot_enable_sharing_for_you(repo):
+    """One person committing share.enabled must not start everyone else's
+    prompts leaving their machines."""
     (repo / config.FILENAME).write_text(json.dumps({
         "share": {"enabled": True, "remote": "upstream"},
         "redaction": {"mode": "hash", "disable_patterns": ["HOME_PATH"]},
     }))
     cfg = config.load(repo)
-    assert cfg.share.enabled and cfg.share.remote == "upstream"
+
+    assert cfg.share.enabled is False       # ignored, deliberately
+    assert cfg.shared_tried_to_enable       # and surfaced by doctor
+    assert cfg.share.remote == "upstream"   # remote is fine to share
     assert cfg.redaction.mode == "hash"
     assert cfg.redaction.disable_patterns == ["HOME_PATH"]
+
+
+def test_the_personal_file_is_what_enables_sharing(repo):
+    (repo / config.FILENAME).write_text(json.dumps({"redaction": {"mode": "hash"}}))
+    config.enable_sharing(repo)
+    cfg = config.load(repo)
+
+    assert cfg.share.enabled is True
+    assert cfg.redaction.mode == "hash"  # team rules still apply
 
 
 def test_broken_config_raises_rather_than_silently_ignoring(repo):
@@ -164,7 +178,7 @@ def test_doctor_fails_when_a_high_severity_secret_is_shareable(repo):
     from pblame import config, doctor
     from pblame.adapters import claude_code
 
-    (repo / config.FILENAME).write_text(_json.dumps({"share": {"enabled": True}}))
+    (repo / config.LOCAL_FILENAME).write_text(_json.dumps({"share": {"enabled": True}}))
     claude_code.install(repo)
     claude_code.handle({"hook_event_name": "UserPromptSubmit", "cwd": str(repo),
                         "session_id": "s", "prompt": "key AKIAIOSFODNN7EXAMPLE"})

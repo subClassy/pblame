@@ -4,7 +4,17 @@ import pytest
 
 
 def run_git(repo, *args):
-    subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True)
+    proc = subprocess.run(["git", "-C", str(repo), *args],
+                          capture_output=True, text=True, encoding="utf-8",
+                          errors="replace")
+    if proc.returncode:
+        # check=True hides stderr, which makes a failing hook impossible to
+        # diagnose from the test output alone.
+        raise AssertionError(
+            f"git {' '.join(args)} exited {proc.returncode}\n"
+            f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
+        )
+    return proc.stdout
 
 
 @pytest.fixture

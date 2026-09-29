@@ -117,13 +117,15 @@ def push(repo: Path, cfg: Config) -> list[Planned]:
 
     refspec = f"{notes.SHARED_REF}:{notes.NOTES_REF}"
     try:
-        git(repo, "push", cfg.share.remote, refspec)
+        # --no-verify keeps this from re-entering the pre-push hook.
+        git(repo, "push", "--no-verify", cfg.share.remote, refspec)
     except GitError:
         # Someone else pushed first. Merge their work in and try once more —
         # never force, or we would delete what they shared.
         pull(repo, cfg)
         stage(repo, planned)
-        git(repo, "push", cfg.share.remote, refspec)
+        # --no-verify keeps this from re-entering the pre-push hook.
+        git(repo, "push", "--no-verify", cfg.share.remote, refspec)
     return planned
 
 

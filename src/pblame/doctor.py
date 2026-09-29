@@ -79,11 +79,18 @@ def _check_agent_hooks(repo: Path) -> list[Check]:
 
 
 def _check_git_hooks(repo: Path) -> list[Check]:
+    try:
+        sharing = config.load(repo).share.enabled
+    except config.ConfigError:
+        sharing = False
     out = []
     for name in git_hooks.HOOKS:
         path = repo / ".git" / "hooks" / name
         if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding="utf-8"):
-            out.append(Check(FAIL, f"{name} hook", "not installed - run `pblame init`"))
+            # pre-push and post-merge only matter once sharing is on.
+            optional = name in git_hooks.SHARING_HOOKS and not sharing
+            out.append(Check(WARN if optional else FAIL, f"{name} hook",
+                             "not installed - run `pblame init`"))
             continue
         out.append(Check(PASS, f"{name} hook", "installed"))
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -193,8 +200,12 @@ def _check_secrets(repo: Path) -> list[Check]:
             for name, severity in r.prompt.secrets.items():
                 found.setdefault(name, severity)
 
-    out = [Check(PASS, "sharing", "enabled, remote " + cfg.share.remote
+    out = [Check(PASS, "sharing", f"enabled, remote {cfg.share.remote}"
                  if cfg.share.enabled else "off - prompts stay on this machine")]
+    if cfg.shared_tried_to_enable and not cfg.share.enabled:
+        out.append(Check(WARN, "sharing",
+                         f"{config.FILENAME} asks for sharing but that is yours to "
+                         f"choose - run `pblame share` to opt in"))
     if not found:
         out.append(Check(PASS, "secrets in prompts", "none detected"))
         return out

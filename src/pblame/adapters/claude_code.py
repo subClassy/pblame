@@ -203,6 +203,7 @@ def install(repo: Path) -> Path:
 
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     git_hooks.ensure_ignored(repo, f".claude/{LOCAL_SETTINGS}")
+    git_hooks.ensure_ignored(repo, config.LOCAL_FILENAME)
     return path
 
 

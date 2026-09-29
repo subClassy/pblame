@@ -6,13 +6,16 @@ import subprocess
 import pytest
 from conftest import run_git
 
-from pblame import config, notes, share
+from pblame import config, git_hooks, notes, share
 from pblame.adapters import claude_code
 from pblame.snapshot import git
 
 
 def enable_sharing(repo, **extra):
-    (repo / config.FILENAME).write_text(json.dumps({"share": {"enabled": True, **extra}}))
+    (repo / config.LOCAL_FILENAME).write_text(json.dumps({"share": {"enabled": True, **extra}}))
+    # `pblame share` does this too: without it `git add -A` commits a personal
+    # file and the next teammate's pull hits an untracked-file conflict.
+    git_hooks.ensure_ignored(repo, config.LOCAL_FILENAME)
 
 
 def cfg_of(repo):
@@ -64,7 +67,7 @@ def record(repo, prompt, path="app.py", body=None, session="s"):
 # --- consent ------------------------------------------------------------
 
 def test_push_refuses_when_sharing_is_off(repo, origin):
-    (repo / config.FILENAME).write_text(json.dumps({"share": {"enabled": False}}))
+    (repo / config.LOCAL_FILENAME).write_text(json.dumps({"share": {"enabled": False}}))
     record(repo, "add a helper", body="base\nhelper\n")
 
     with pytest.raises(share.ShareDisabled):
@@ -197,3 +200,77 @@ def test_editor_context_paths_do_not_leak_a_username(repo, origin):
     shared = notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
     assert "subCl" not in shared
     assert "subCl" in notes.read(repo, sha)[0].prompt.text  # local keeps it
+
+
+# --- the hooks do the sharing, so nobody has to remember ----------------
+
+def test_git_push_shares_prompts_via_the_pre_push_hook(tmp_path, repo, origin):
+    from pblame import git_hooks
+
+    git_hooks.install_hooks(repo)
+    sha = record(repo, "shared by the hook", body="base\nhooked\n")
+    run_git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")  # fires pre-push
+
+    # The notes ref reached the remote without anyone running `pblame push`.
+    assert notes.NOTES_REF in git(origin, "for-each-ref")
+    bob = clone(origin, tmp_path / "bob", "bob")
+    share.pull(bob, cfg_of(bob))
+    assert [r.prompt.text for r in notes.read_merged(bob, sha)] == ["shared by the hook"]
+
+
+def test_pre_push_hook_is_silent_while_sharing_is_off(repo, origin):
+    from pblame import git_hooks
+
+    (repo / config.LOCAL_FILENAME).write_text(json.dumps({"share": {"enabled": False}}))
+    git_hooks.install_hooks(repo)
+    record(repo, "stays home", body="base\nx\n")
+    run_git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+    assert notes.NOTES_REF not in git(origin, "for-each-ref")
+    log = repo / ".git" / "pblame" / "hook.log"
+    assert not log.exists() or log.read_text().strip() == ""
+
+
+def test_inner_notes_push_does_not_re_enter_the_hook(repo, origin):
+    """--no-verify on the inner push is what stops infinite recursion."""
+    from pblame import git_hooks
+
+    git_hooks.install_hooks(repo)
+    record(repo, "one prompt", body="base\nx\n")
+    run_git(repo, "push", "-q", "origin", "HEAD:refs/heads/main")
+
+    log = repo / ".git" / "pblame" / "hook.log"
+    assert not log.exists() or "recursion" not in log.read_text().lower()
+    assert notes.NOTES_REF in git(origin, "for-each-ref")
+
+
+def test_git_pull_fetches_teammates_prompts_via_post_merge(tmp_path, repo, origin):
+    from pblame import git_hooks
+
+    bob = clone(origin, tmp_path / "bob", "bob")
+    git_hooks.install_hooks(bob)
+
+    # Alice works *after* bob cloned, so his pull is a real merge. post-merge
+    # does not fire on an already-up-to-date pull.
+    sha = record(repo, "alice's later work", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    # A plain `git pull` should bring the prompts along with the code.
+    run_git(bob, "pull", "-q", "--no-rebase", "origin", "main")
+
+    assert [r.prompt.text for r in notes.read_merged(bob, sha)] == ["alice's later work"]
+
+
+def test_doctor_only_demands_sharing_hooks_once_sharing_is_on(repo):
+    from pblame import doctor
+
+    claude_code.install(repo)
+    git_hooks.install_post_commit(repo)  # the old two-hook world
+    (repo / config.LOCAL_FILENAME).write_text(json.dumps({"share": {"enabled": False}}))
+    by_label = {c.label: c for c in doctor.run(repo)}
+    assert by_label["pre-push hook"].status == doctor.WARN
+
+    enable_sharing(repo)
+    by_label = {c.label: c for c in doctor.run(repo)}
+    assert by_label["pre-push hook"].status == doctor.FAIL
