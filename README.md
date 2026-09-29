@@ -52,9 +52,10 @@ pblame doctor          # must say "Recording is live"
 ```
 
 `init` writes two Claude Code hooks into `.claude/settings.local.json` (the personal,
-gitignored settings file) and two git hooks (`post-commit`, `post-rewrite`). Existing
-hooks and settings are preserved, not replaced. **Open a fresh Claude Code session after
-`init`** — hooks load when a session starts.
+gitignored settings file) and four git hooks: `post-commit` and `post-rewrite` for
+recording, `pre-push` and `post-merge` for sharing — the last two stay silent until you
+opt in. Existing hooks and settings are preserved, not replaced. **Open a fresh Claude
+Code session after `init`** — hooks load when a session starts.
 
 ## Use
 
