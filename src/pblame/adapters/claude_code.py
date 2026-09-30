@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import git_hooks, staging
+from .. import config, git_hooks, redact, staging
 from ..models import FileChange, PromptEvent, Receipt
 from ..snapshot import (
     diff_hunks,
@@ -65,14 +65,16 @@ def handle(payload: dict) -> None:
             # A still-open receipt means the previous turn never saw Stop
             # (interrupt or crash): close it at this boundary instead.
             _close(repo, state.receipts, payload, tree)
+            text = clean_prompt(payload.get("prompt", ""))
             state.receipts.append(
                 Receipt(
                     prompt=PromptEvent(
                         id=uuid.uuid4().hex,
-                        text=clean_prompt(payload.get("prompt", "")),
+                        text=text,
                         model="",
                         timestamp=datetime.now(timezone.utc),
                         session_id=payload.get("session_id", ""),
+                        secrets=_scan_secrets(repo, text),
                     ),
                     pre_tree=tree,
                 )
@@ -82,6 +84,18 @@ def handle(payload: dict) -> None:
 
         state.last_tree = tree
         staging.save(repo, state)
+
+
+def _scan_secrets(repo: Path, text: str) -> dict[str, str]:
+    """Note which secret types the prompt contains, keeping the worst severity
+    seen for each. The text is stored verbatim regardless — this is so
+    `doctor` can warn before anything is shared, not a reason to mangle the
+    author's own record."""
+    try:
+        cfg = config.load(repo).redaction
+    except config.ConfigError:
+        cfg = None  # a typo in config must never cost us the receipt
+    return redact.summarize(redact.scan(text, cfg))
 
 
 def _close(repo: Path, receipts: list[Receipt], payload: dict, post_tree: str) -> None:
@@ -184,6 +198,7 @@ def install(repo: Path) -> Path:
 
     path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
     git_hooks.ensure_ignored(repo, f".claude/{LOCAL_SETTINGS}")
+    git_hooks.ensure_ignored(repo, config.LOCAL_FILENAME)
     return path
 
 

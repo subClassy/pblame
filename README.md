@@ -52,9 +52,10 @@ pblame doctor          # must say "Recording is live"
 ```
 
 `init` writes two Claude Code hooks into `.claude/settings.local.json` (the personal,
-gitignored settings file) and two git hooks (`post-commit`, `post-rewrite`). Existing
-hooks and settings are preserved, not replaced. **Open a fresh Claude Code session after
-`init`** — hooks load when a session starts.
+gitignored settings file) and four git hooks: `post-commit` and `post-rewrite` for
+recording, `pre-push` and `post-merge` for sharing — the last two stay silent until you
+opt in. Existing hooks and settings are preserved, not replaced. **Open a fresh Claude
+Code session after `init`** — hooks load when a session starts.
 
 ## Use
 
@@ -65,7 +66,63 @@ Just work. Prompt Claude Code as normal, commit when you like.
 | `pblame blame <file>` | the file, annotated with the prompt behind each line (`--json` for machines) |
 | `pblame show [commit]` | every prompt recorded on a commit, with the files and line ranges it produced |
 | `pblame doctor` | is this repo actually recording right now? Run it if anything feels off |
+| `pblame share` | opt in to sharing prompts with your team (`--off` to stop) |
+| `pblame push` / `pull` | share, or fetch what teammates shared (`push --dry-run` to preview) |
+| `pblame redact <file>` | see what redaction would do to some text, without recording |
 | `pblame uninstall` | remove the hooks; recorded history is kept (`--purge` deletes that too) |
+
+## Sharing with a team
+
+Off by default. Nothing leaves your machine until you say so:
+
+```
+pblame share                 # opt in — writes .pblame.local.json, gitignored
+pblame push --dry-run        # exactly what would be sent, sent nowhere
+pblame push                  # send it
+```
+
+After that, `git push` shares automatically and `git pull` fetches what your
+teammates shared. A new teammate runs `pblame init` then `pblame pull` once.
+
+**Your prompts are redacted on the way out, never on the way in.** Locally the record
+keeps exactly what you typed — it is inside `.git`, as private as the code beside it.
+Redaction runs when a receipt crosses the machine boundary, so a false positive costs
+fidelity in the shared copy and never in your own history. `pblame blame` shows you the
+verbatim text and shows teammates the redacted text.
+
+What gets filtered: API keys, AWS/GitHub/Slack tokens, private keys, JWTs, bearer tokens,
+`password = …` values, emails, and home-directory paths, plus anything with high enough
+entropy to look like a secret. Keyed patterns keep the key and drop the value, so
+`password = "hunter2"` becomes `password = "[REDACTED_PASSWORD]"` — that a password was
+set is useful, the value is not. Tune it with `pblame redact` before you turn sharing on.
+
+Two config files, split by who the decision belongs to:
+
+| | |
+|---|---|
+| `.pblame.json` | **committed.** Redaction rules, so the whole team filters the same way. |
+| `.pblame.local.json` | **gitignored.** Whether *you* share. A teammate committing `share.enabled` can never switch it on for you. |
+
+```json
+// .pblame.json — team-wide
+{
+  "redaction": {
+    "mode": "replace",
+    "custom_patterns": [
+      { "pattern": "CUST-\\d{6,}", "replacement": "[REDACTED_CUSTOMER_ID]" }
+    ]
+  }
+}
+```
+
+`mode: "hash"` replaces secrets with a stable `[SHA256:…]` instead, so a reader can tell
+the same secret appeared twice without learning it.
+
+Sharing uses three refs. `refs/notes/pblame` is your verbatim record and is never pushed;
+`refs/notes/pblame-shared` is the redacted mirror that travels; `refs/notes/pblame-remote`
+is scratch space for a fetch. Because the mirror is separate, pulling cannot overwrite
+your own prompts, and pushing never needs `--force` — a rejected push is resolved by
+merging, not clobbering.
 
 ## What gets recorded, and where
 
@@ -78,9 +135,9 @@ Everything stays in your repo:
 - `.git/pblame/hook.log` — errors, if a hook ever fails (should stay empty)
 - `refs/notes/pblame` — the permanent record, one note per commit
 
-**Prompts can contain things you'd rather not publish.** Notes are *not* pushed by
-default; `git push` leaves them behind. If you ever want them on the remote it's an
-explicit `git push origin refs/notes/pblame`. Until then, nothing leaves your machine.
+**Prompts can contain things you'd rather not publish.** Nothing is shared until you run
+`pblame share` — see below. Until then `git push` leaves the notes behind and nothing
+leaves your machine.
 
 ## How it works, briefly
 
@@ -92,6 +149,8 @@ lines across later commits, renames included) against those notes.
 
 ## Known limits
 
+- **Whoever can read the repo can read the shared prompts.** There is no per-person
+  access control, and notes are not encrypted at rest.
 - **One Claude Code session per repo at a time.** Two at once won't lose data, but their
   turns overlap in the snapshots and lines get attributed to the wrong prompt.
 - **A prompt that changes no file leaves no record** (questions, "it already does that").

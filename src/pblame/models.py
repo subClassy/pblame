@@ -18,15 +18,22 @@ class PromptEvent:
     model: str  # empty until the turn closes; read from the transcript at Stop
     timestamp: datetime
     session_id: str
+    # What redaction found, as {"AWS_KEY": "CRITICAL", ...}. Recorded at
+    # capture so `doctor` can say a secret is sitting in the record; the text
+    # itself is never mangled here, only when it leaves the machine.
+    secrets: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "id": self.id,
             "text": self.text,
             "model": self.model,
             "timestamp": self.timestamp.isoformat(),
             "session_id": self.session_id,
         }
+        if self.secrets:  # keep notes from older versions byte-identical
+            d["secrets"] = self.secrets
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "PromptEvent":
@@ -36,6 +43,7 @@ class PromptEvent:
             model=d["model"],
             timestamp=datetime.fromisoformat(d["timestamp"]),
             session_id=d["session_id"],
+            secrets=dict(d.get("secrets") or {}),
         )
 
 

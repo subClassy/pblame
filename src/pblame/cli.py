@@ -6,7 +6,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import adapters, blame, doctor, git_hooks, notes
+from . import adapters, blame, config, doctor, git_hooks, notes, redact, share, ui
+from .ui import plural
 from .snapshot import GitError, git, repo_root
 
 
@@ -27,7 +28,7 @@ def _log_hook_error(payload: dict, error: Exception) -> None:
     """Leave a trace in the repo's hook log. Silent failure is the worst
     outcome here: recording can stop for a whole session unnoticed."""
     line = f"{datetime.now():%Y-%m-%d %H:%M:%S} hook: {type(error).__name__}: {error}"
-    print(f"pblame: {line}", file=sys.stderr)
+    ui.err.bad(line)
     try:
         log = repo_root(Path(payload.get("cwd") or ".")) / ".git" / "pblame" / "hook.log"
         log.parent.mkdir(exist_ok=True)
@@ -41,14 +42,23 @@ def cmd_init(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
     except GitError as e:
-        print(f"pblame: {args.repo} is not a git repository ({e})", file=sys.stderr)
+        ui.err.bad(f"{args.repo} is not a git repository ({e})")
         return 1
     settings = adapters.get("claude").install(repo)
     hooks = git_hooks.install_hooks(repo)
-    print(f"pblame: installed Claude Code hooks in {settings}")
-    for hook in hooks:
-        print(f"pblame: installed {hook.name} hook in {hook}")
-    print("pblame: recording starts with the next Claude Code session in this repo")
+    ui.out.ok(f"Recording set up in {repo.name}")
+    ui.out.plain()
+    ui.out.field("Claude Code hooks", str(settings.relative_to(repo)))
+    ui.out.field("git hooks", ", ".join(h.name for h in hooks))
+    ui.out.plain()
+    ui.out.note("Open a new Claude Code session - hooks load when a session starts.")
+    # A fresh clone has no hooks (git never clones them) and its first pull is
+    # a no-op, so joining a team that already shares needs one explicit step.
+    try:
+        if git(repo, "remote").split() and config.load(repo).share.enabled:
+            ui.out.next_step("pblame pull", "fetch prompts your team already shared")
+    except (GitError, config.ConfigError):
+        pass
     return 0
 
 
@@ -56,25 +66,27 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
     except GitError as e:
-        print(f"pblame: {args.repo} is not a git repository ({e})", file=sys.stderr)
+        ui.err.bad(f"{args.repo} is not a git repository ({e})")
         return 1
 
-    for path in adapters.get("claude").uninstall(repo) + git_hooks.uninstall_hooks(repo):
-        print(f"pblame: removed hooks from {path}")
-    print("pblame: recording stopped for this repo")
+    removed = adapters.get("claude").uninstall(repo) + git_hooks.uninstall_hooks(repo)
+    ui.out.ok(f"Recording stopped in {repo.name}")
+    if removed:
+        ui.out.field("hooks removed", ", ".join(x.name for x in removed))
 
     if not args.purge:
-        print("pblame: recorded history kept (refs/notes/pblame and .git/pblame/);"
-              " add --purge to delete it")
+        ui.out.plain()
+        ui.out.note("Recorded prompts were kept.")
+        ui.out.next_step("pblame uninstall --purge", "delete them too")
         return 0
 
     state_dir = repo / ".git" / "pblame"
     if state_dir.exists():
         shutil.rmtree(state_dir)
-        print(f"pblame: deleted {state_dir}")
+        ui.out.field("deleted", str(state_dir.relative_to(repo)))
     try:
         git(repo, "update-ref", "-d", notes.NOTES_REF)
-        print(f"pblame: deleted {notes.NOTES_REF} - every recorded prompt is gone")
+        ui.out.field("deleted", f"{notes.NOTES_REF} (every recorded prompt)")
     except GitError:
         pass  # no notes were ever written
     return 0
@@ -90,9 +102,9 @@ def cmd_rewrite(args: argparse.Namespace) -> int:
             if len(parts) >= 2:
                 moved += notes.remap(repo, parts[0], parts[1])
         if moved:
-            print(f"[pblame] carried {moved} prompt receipt(s) onto rewritten commits")
+            ui.out.hook(f"carried {moved} prompt{plural(moved)} onto the rewritten commit")
     except Exception as e:
-        print(f"pblame: rewrite error: {e}", file=sys.stderr)
+        ui.err.bad(f"rewrite failed: {e}")
     return 0
 
 
@@ -101,10 +113,10 @@ def cmd_attach(args: argparse.Namespace) -> int:
     try:
         attached = notes.attach_staged(repo_root(Path.cwd()))
     except Exception as e:
-        print(f"pblame: attach error: {e}", file=sys.stderr)
+        ui.err.bad(f"attach failed: {e}")
         return 0
     if attached:
-        print(f"[pblame] attached {len(attached)} prompt receipt(s) to this commit")
+        ui.out.hook(f"attached {len(attached)} prompt{plural(len(attached))} to this commit")
     return 0
 
 
@@ -113,16 +125,16 @@ def cmd_blame(args: argparse.Namespace) -> int:
         repo = repo_root(Path.cwd())
         rel = Path(args.file).resolve().relative_to(repo).as_posix()
     except GitError as e:
-        print(f"pblame: {e}", file=sys.stderr)
+        ui.err.bad(str(e))
         return 1
     except ValueError:
-        print(f"pblame: {args.file} is outside the repository", file=sys.stderr)
+        ui.err.bad(f"{args.file} is outside the repository")
         return 1
 
     try:
         lines = blame.attribute(repo, rel)
     except GitError as e:
-        print(f"pblame: cannot blame {rel} ({e})", file=sys.stderr)
+        ui.err.bad(f"Cannot blame {rel} ({e})")
         return 1
 
     if args.json:
@@ -133,11 +145,144 @@ def cmd_blame(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_redact(args: argparse.Namespace) -> int:
+    """Run the engine over text so patterns can be tuned without recording
+    anything. Redacted text goes to stdout, the summary to stderr, so the
+    output stays pipeable."""
+    cfg = None
+    try:
+        cfg = config.load(repo_root(Path.cwd())).redaction
+    except config.ConfigError as e:
+        ui.err.bad(str(e))
+        return 1
+    except GitError:
+        pass  # a plain text filter; no repo required
+
+    if args.file in (None, "-"):
+        text = sys.stdin.buffer.read().decode("utf-8", errors="replace")
+    else:
+        try:
+            text = Path(args.file).read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            ui.err.bad(f"Cannot read {args.file}: {e}")
+            return 1
+
+    result = redact.redact(text, cfg)
+    print(result.text, end="" if text.endswith("\n") else "\n")
+    if result.detections:
+        found = ", ".join(f"{n} x{c}" if c > 1 else n
+                          for n, c in sorted(result.counts.items()))
+        ui.err.warn(f"{len(result.detections)} found ({result.worst()}): {found}")
+    else:
+        ui.err.ok("Nothing detected")
+    return 0
+
+
+def _repo_and_config(path: str = "."):
+    repo = repo_root(Path(path).resolve())
+    return repo, config.load(repo)
+
+
+def cmd_share(args: argparse.Namespace) -> int:
+    """Opt this developer in or out. Writes the personal, gitignored file, so
+    one person turning sharing on never turns it on for the whole team."""
+    try:
+        repo = repo_root(Path.cwd())
+    except GitError as e:
+        ui.err.bad(str(e))
+        return 1
+
+    path = repo / config.LOCAL_FILENAME
+    if args.off:
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw.setdefault("share", {})["enabled"] = False
+        path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+        ui.out.ok("Sharing off - prompts stay on this machine")
+        ui.out.field("written to", path.name)
+        return 0
+
+    config.enable_sharing(repo, args.remote)
+    git_hooks.ensure_ignored(repo, config.LOCAL_FILENAME)
+    ui.out.ok(f"Sharing on, remote {config.load(repo).share.remote}")
+    ui.out.field("written to", f"{path.name} (gitignored)")
+    ui.out.plain()
+    ui.out.next_step("pblame push --dry-run", "see exactly what would be sent")
+    return 0
+
+
+def cmd_push(args: argparse.Namespace) -> int:
+    try:
+        repo, cfg = _repo_and_config()
+        if args.remote:
+            cfg.share.remote = args.remote
+    except (GitError, config.ConfigError) as e:
+        ui.err.bad(str(e))
+        return 1
+
+    if args.if_enabled and not cfg.share.enabled:
+        return 0  # run from a hook; sharing is off, so there is nothing to say
+
+    if args.dry_run:
+        planned = share.plan(repo, cfg)
+        ui.out.plain(f"Would send to {cfg.share.remote} {notes.NOTES_REF}")
+        ui.out.plain()
+        ui.out.plain(share.describe(planned, redacted_only=args.secrets_only))
+        ui.out.plain()
+        if cfg.share.enabled:
+            ui.out.next_step("pblame push", "send it")
+        else:
+            ui.out.note("Sharing is off. Nothing was sent.")
+            ui.out.next_step("pblame share", "turn it on")
+        return 0
+
+    try:
+        planned = share.push(repo, cfg)
+    except share.ShareDisabled as e:
+        ui.err.bad(str(e))
+        return 1
+    except GitError as e:
+        ui.err.bad(f"Push failed: {e}")
+        return 1
+
+    total = sum(len(item.receipts) for item in planned)
+    secrets = sum(len(item.detections) for item in planned)
+    summary = (f"Shared {total} prompt{plural(total)} from {len(planned)}"
+               f" commit{plural(len(planned))} to {cfg.share.remote}")
+    redacted = f"{secrets} secret{plural(secrets)} redacted" if secrets else ""
+    if args.if_enabled:  # running inside git push; stay on one line
+        ui.out.hook(summary[0].lower() + summary[1:]
+                    + (f", {redacted}" if redacted else ""))
+        return 0
+    ui.out.ok(summary)
+    if redacted:
+        ui.out.field("redacted", redacted)
+    return 0
+
+
+def cmd_pull(args: argparse.Namespace) -> int:
+    try:
+        repo, cfg = _repo_and_config()
+        if args.remote:
+            cfg.share.remote = args.remote
+        if args.if_enabled and not cfg.share.enabled:
+            return 0
+        count = share.pull(repo, cfg)
+    except (GitError, config.ConfigError) as e:
+        ui.err.bad(f"Pull failed: {e}")
+        return 1
+    summary = f"Shared history covers {count} commit{plural(count)}"
+    if args.if_enabled:  # running inside git pull
+        ui.out.hook(summary[0].lower() + summary[1:])
+    else:
+        ui.out.ok(summary)
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
     except GitError:
-        print(f"pblame: {args.repo} is not a git repository", file=sys.stderr)
+        ui.err.bad(f"{args.repo} is not a git repository")
         return 1
     checks = doctor.run(repo)
     color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
@@ -149,11 +294,12 @@ def cmd_show(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path.cwd())
     except GitError as e:
-        print(f"pblame: {e}", file=sys.stderr)
+        ui.err.bad(str(e))
         return 1
-    receipts = notes.read(repo, args.commit)
+    # Merged, so a teammate's shared prompts show up and not just our own.
+    receipts = notes.read_merged(repo, args.commit)
     if not receipts:
-        print(f"pblame: no prompt receipts recorded for {args.commit}")
+        ui.out.note(f"No prompts recorded for {args.commit}")
         return 0
     for r in receipts:
         print(f"{r.prompt.model} - {r.prompt.timestamp:%Y-%m-%d %H:%M} - {r.prompt.session_id}")
@@ -206,6 +352,31 @@ def main(argv: list[str] | None = None) -> int:
     show = sub.add_parser("show", help="show all prompt receipts recorded for a commit")
     show.add_argument("commit", nargs="?", default="HEAD")
     show.set_defaults(func=cmd_show)
+
+    sh = sub.add_parser("share", help="opt in (or out) of sharing prompts with your team")
+    sh.add_argument("--off", action="store_true", help="stop sharing")
+    sh.add_argument("--remote")
+    sh.set_defaults(func=cmd_share)
+
+    push = sub.add_parser("push", help="share the record: redact, then push the notes ref")
+    push.add_argument("--dry-run", action="store_true",
+                      help="print exactly what would be sent, and send nothing")
+    push.add_argument("--secrets-only", action="store_true",
+                      help="with --dry-run, show only prompts that had something redacted")
+    push.add_argument("--remote")
+    push.add_argument("--if-enabled", action="store_true",
+                      help="do nothing unless sharing is on (used by the pre-push hook)")
+    push.set_defaults(func=cmd_push)
+
+    pull = sub.add_parser("pull", help="fetch and merge what teammates shared")
+    pull.add_argument("--remote")
+    pull.add_argument("--if-enabled", action="store_true",
+                      help="do nothing unless sharing is on (used by the post-merge hook)")
+    pull.set_defaults(func=cmd_pull)
+
+    red = sub.add_parser("redact", help="show what redaction would do to some text")
+    red.add_argument("file", nargs="?", default="-", help="file to read, or - for stdin")
+    red.set_defaults(func=cmd_redact)
 
     doc = sub.add_parser("doctor", help="check that this repo is actually being recorded")
     doc.add_argument("repo", nargs="?", default=".")

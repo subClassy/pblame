@@ -22,27 +22,110 @@ from .snapshot import (
     touched_paths,
 )
 
-NOTES_REF = "refs/notes/pblame"
+NOTES_REF = "refs/notes/pblame"              # local, verbatim, never pushed
+SHARED_REF = "refs/notes/pblame-shared"      # redacted mirror; this is what travels
+FETCH_REF = "refs/notes/pblame-remote"       # scratch landing spot for a fetch
 
 
-def read(repo: Path, sha: str) -> list[Receipt]:
+VERSION_LINE = '{"pblame":1}'
+
+
+def parse(text: str) -> list[Receipt]:
+    """Receipts from a note body, in either format.
+
+    Current format is JSONL: a version line, then one compact receipt per
+    line. That makes `git notes merge --strategy=union` a correct merge, since
+    git's merge strategies are line-based — a line-wise union of two
+    pretty-printed JSON documents would not be valid JSON.
+    """
+    text = text.strip()
+    if not text:
+        return []
+
+    # Legacy: a single pretty-printed {"version": 1, "receipts": [...]}.
     try:
-        out = git(repo, "notes", "--ref", NOTES_REF, "show", sha)
+        whole = json.loads(text)
+    except json.JSONDecodeError:
+        whole = None
+    if isinstance(whole, dict) and "receipts" in whole:
+        return _fold(_receipts_from(whole["receipts"]))
+
+    objects = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a conflicted or foreign line must not lose the rest
+        if isinstance(obj, dict) and "prompt" in obj:
+            objects.append(obj)
+    return _fold(_receipts_from(objects))
+
+
+def _receipts_from(objects: list) -> list[Receipt]:
+    out = []
+    for obj in objects:
+        try:
+            out.append(Receipt.from_dict(obj))
+        except (KeyError, TypeError, ValueError):
+            continue  # skip what we cannot read rather than losing the note
+    return out
+
+
+def _fold(receipts: list[Receipt]) -> list[Receipt]:
+    """Collapse copies of one prompt, unioning ranges per path.
+
+    A union-merged note legitimately holds the same prompt twice: attach
+    splits a receipt across commits by file, and two developers can each
+    hold a different half.
+    """
+    out: list[Receipt] = []
+    by_id: dict[str, Receipt] = {}
+    for r in receipts:
+        if r.prompt.id in by_id:
+            _absorb(by_id[r.prompt.id], r)
+        else:
+            out.append(r)
+            by_id[r.prompt.id] = r
+    return out
+
+
+def read(repo: Path, sha: str, ref: str = NOTES_REF) -> list[Receipt]:
+    try:
+        return parse(git(repo, "notes", "--ref", ref, "show", sha, strip=False))
     except GitError:
         return []  # no note on this commit
+
+
+def read_merged(repo: Path, sha: str) -> list[Receipt]:
+    """Everything known about a commit: our verbatim record plus whatever
+    teammates shared. Local comes first, so where both hold the same prompt
+    the unredacted text wins."""
+    return _fold(read(repo, sha, NOTES_REF) + read(repo, sha, SHARED_REF))
+
+
+def commits_with_notes(repo: Path, ref: str = NOTES_REF) -> list[str]:
     try:
-        raw = json.loads(out)
-    except json.JSONDecodeError:
+        listed = git(repo, "notes", "--ref", ref, "list")
+    except GitError:
         return []
-    return [Receipt.from_dict(d) for d in raw.get("receipts", [])]
+    return [p[1] for p in (l.split() for l in listed.splitlines()) if len(p) > 1]
 
 
-def write(repo: Path, sha: str, receipts: list[Receipt]) -> None:
-    payload = json.dumps(
-        {"version": 1, "receipts": [r.to_dict() for r in receipts]}, indent=2
-    )
-    git(repo, "notes", "--ref", NOTES_REF, "add", "-f", "-F", "-", sha,
-        input_text=payload)
+def serialize(receipts: list[Receipt]) -> str:
+    # sort_keys makes each line byte-stable, so cat_sort_uniq can dedup them.
+    lines = [VERSION_LINE] + [
+        json.dumps(r.to_dict(), separators=(",", ":"), sort_keys=True)
+        for r in receipts
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write(repo: Path, sha: str, receipts: list[Receipt], ref: str = NOTES_REF) -> None:
+    git(repo, "notes", "--ref", ref, "add", "-f", "-F", "-", sha,
+        input_text=serialize(receipts))
 
 
 def _union_ranges(a: list[tuple[int, int]], b: list[tuple[int, int]]) -> list[tuple[int, int]]:
@@ -66,7 +149,8 @@ def _absorb(target: Receipt, source: Receipt) -> None:
             by_path[f.path] = f
 
 
-def merge_into(repo: Path, sha: str, receipts: list[Receipt]) -> None:
+def merge_into(repo: Path, sha: str, receipts: list[Receipt],
+               ref: str = NOTES_REF) -> None:
     """Add receipts to a commit's note.
 
     The same prompt can legitimately reach one commit twice: attach splits a
@@ -74,7 +158,7 @@ def merge_into(repo: Path, sha: str, receipts: list[Receipt]) -> None:
     commits. Dropping the second copy would lose its files, so copies of one
     prompt are merged, not deduplicated.
     """
-    existing = read(repo, sha)
+    existing = read(repo, sha, ref)
     by_id = {r.prompt.id: r for r in existing}
     for r in receipts:
         if r.prompt.id in by_id:
@@ -83,12 +167,12 @@ def merge_into(repo: Path, sha: str, receipts: list[Receipt]) -> None:
             existing.append(r)
             by_id[r.prompt.id] = r
     if existing:
-        write(repo, sha, existing)
+        write(repo, sha, existing, ref)
 
 
-def remove(repo: Path, sha: str) -> None:
+def remove(repo: Path, sha: str, ref: str = NOTES_REF) -> None:
     try:
-        git(repo, "notes", "--ref", NOTES_REF, "remove", sha)
+        git(repo, "notes", "--ref", ref, "remove", sha)
     except GitError:
         pass  # nothing there to remove
 

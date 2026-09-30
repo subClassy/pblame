@@ -285,10 +285,14 @@ def copy_with_files(receipt, files):
     return c
 
 
-def test_init_installs_the_post_rewrite_hook(repo):
+def test_init_installs_every_hook(repo):
     names = {p.name for p in git_hooks.install_hooks(repo)}
-    assert names == {"post-commit", "post-rewrite"}
-    assert "rewrite" in (repo / ".git" / "hooks" / "post-rewrite").read_text()
+    assert names == {"post-commit", "post-rewrite", "pre-push", "post-merge"}
+    hooks = repo / ".git" / "hooks"
+    assert "rewrite" in (hooks / "post-rewrite").read_text()
+    # The sharing hooks stay silent until sharing is turned on.
+    assert "push --if-enabled" in (hooks / "pre-push").read_text()
+    assert "pull --if-enabled" in (hooks / "post-merge").read_text()
 
 
 # --- 8. merge commits and concurrency -------------------------------------
