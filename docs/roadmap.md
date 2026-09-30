@@ -21,7 +21,7 @@ lets the question be asked.
 Effort below is in focused working days, not calendar days — the "one week" MVP took
 about three calendar weeks of intermittent work, and that ratio will hold.
 
-## Phase 1 — make the record shareable (≈5 days) ← next
+## Phase 1 — make the record shareable ✔ done (merged 2026-09-29)
 
 Branch `feat/sharing-redaction`. Spec: [spec-sharing-redaction.md](spec-sharing-redaction.md).
 
@@ -34,8 +34,18 @@ plumbing costume. Three parts, in order:
 3. **Opt-in sharing** — `pblame push` / `pull`, a preview of exactly what would leave,
    and never an automatic first push.
 
-**Gate:** would your friend turn this on for his team's repo after reading what it sends?
-If the answer needs a caveat, the consent model is wrong, not the plumbing.
+Landed as specified, plus two things the work itself forced: sharing is opt-in per
+developer in a gitignored file (a committed `share.enabled` would have started a
+teammate's prompts leaving their machine the moment they pulled), and `pblame doctor`
+reports secrets sitting in the record before anyone shares.
+
+**Gate, still open:** would your friend turn this on for his team's repo after reading
+`pblame push --dry-run`? Worth asking him directly — it is the one thing that cannot be
+determined from here.
+
+**Found while testing:** GitHub does not render git notes anywhere in its UI. Pushed
+notes are stored and invisible. Nothing in this phase makes attribution visible to a
+reviewer who has not installed pblame, which is the entire reason Phase 2 exists.
 
 ## Phase 2 — put it where review happens (≈5 days)
 
@@ -52,7 +62,7 @@ Depends entirely on Phase 1 — a PR comment needs notes the CI runner can fetch
 and shrug, screens 1 and 3 are a nicer audit log, not a review tool, and pricing has to
 move down accordingly.
 
-## Phase 3 — query and audit (≈5 days)
+## Phase 3 — query and audit (≈5 days) ← recommended next
 
 Screen 3: search across recorded history. "Show me everything the model wrote in
 `payments/` last quarter", "which prompts touched auth", "what was asked for before this
@@ -61,6 +71,12 @@ service (milestone 4 of the original plan).
 
 This is the half of the product that sells to compliance rather than to engineers, and
 it is the cheapest one to build on top of what exists.
+
+**Why this before Phase 2.** Shared prompts were chosen partly to build a team prompt
+library, and search *is* that product. It also serves the only kind of user we actually
+have: a solo developer on a real project, who has no review problem but does want "how
+did I get it to do that last time". And it needs no GitHub repo, no CI, and no second
+person to be worth using — all of which Phase 2 requires before it can even be judged.
 
 ## Phase 4 — the outcomes join (open-ended, a research bet)
 
