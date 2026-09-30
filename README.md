@@ -149,6 +149,9 @@ lines across later commits, renames included) against those notes.
 
 ## Known limits
 
+- **Everyone sharing a repo needs a similar pblame version.** Notes written by this
+  version cannot be read by one from before sharing landed: that reader sees an empty
+  record rather than an error. Reading older notes works fine, so upgrading is safe.
 - **Whoever can read the repo can read the shared prompts.** There is no per-person
   access control, and notes are not encrypted at rest.
 - **One Claude Code session per repo at a time.** Two at once won't lose data, but their

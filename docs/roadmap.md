@@ -103,6 +103,20 @@ Keep saying that out loud.
   recording. Not urgent at one tester. Reconsider at five, or the first time someone
   cannot install Python.
 
+## Known debt, deliberately unpaid
+
+**Notes are backward but not forward compatible.** Since Phase 1, notes are written as
+JSONL. An older pblame reads nothing from them — its parser expects the old
+`{"version": 1, "receipts": [...]}` object. Reading *old* notes still works and is
+tested, so upgrading is safe; the hazard is two people on different versions sharing a
+repo, where the one on the older build silently sees an empty record.
+
+Not worth fixing while there is one tester on a fixed wheel. Worth fixing before a second
+person installs: the note's first line already carries `{"pblame":1}`, so the version is
+there to check — a reader that finds a version it does not understand should say so rather
+than return nothing. Silent emptiness is the failure mode this project has been bitten by
+twice.
+
 ## What could stop this
 
 | Risk | Where it shows |
