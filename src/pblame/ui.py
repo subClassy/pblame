@@ -28,8 +28,10 @@ def plural(n: int) -> str:
     return "" if n == 1 else "s"
 
 
-_UNICODE = {"ok": "✓", "warn": "!", "bad": "✗", "arrow": "→", "dot": "•"}
-_ASCII = {"ok": "+", "warn": "!", "bad": "x", "arrow": "->", "dot": "-"}
+_UNICODE = {"ok": "✓", "warn": "!", "bad": "✗", "arrow": "→",
+            "dot": "•", "sep": "·"}
+_ASCII = {"ok": "+", "warn": "!", "bad": "x", "arrow": "->",
+          "dot": "-", "sep": "|"}
 
 
 def _enable_windows_ansi() -> None:

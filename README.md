@@ -65,11 +65,32 @@ Just work. Prompt Claude Code as normal, commit when you like.
 |---|---|
 | `pblame blame <file>` | the file, annotated with the prompt behind each line (`--json` for machines) |
 | `pblame show [commit]` | every prompt recorded on a commit, with the files and line ranges it produced |
+| `pblame search <words>` | find a prompt across all recorded history |
 | `pblame doctor` | is this repo actually recording right now? Run it if anything feels off |
 | `pblame share` | opt in to sharing prompts with your team (`--off` to stop) |
 | `pblame push` / `pull` | share, or fetch what teammates shared (`push --dry-run` to preview) |
 | `pblame redact <file>` | see what redaction would do to some text, without recording |
 | `pblame uninstall` | remove the hooks; recorded history is kept (`--purge` deletes that too) |
+
+## Searching what you have already asked for
+
+Once a repo has history, it becomes a record of how things were done:
+
+```
+pblame search "rate limit"              # words in the prompt text
+pblame search --path src/auth.py        # everything that touched a file
+pblame search --path "*.css" --since 2w # a glob, recently
+pblame search --model sonnet            # by model
+pblame search --author bob --mine       # by commit author; --mine skips teammates'
+pblame search "retry" --regex --json    # regex, machine-readable
+```
+
+Newest first, the matched words highlighted, with the files and line ranges each prompt
+produced. Exit status is non-zero when nothing matched, so it composes in a shell the way
+`grep` does.
+
+It reads the whole notes tree in two git calls rather than one per commit, so it stays
+fast on a repo with thousands of recorded commits.
 
 ## Sharing with a team
 

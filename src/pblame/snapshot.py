@@ -41,6 +41,19 @@ def git(repo: Path, *args: str, env: dict[str, str] | None = None,
     return proc.stdout.strip() if strip else proc.stdout
 
 
+def git_bytes(repo: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
+    """Raw output, for commands whose framing is byte-counted — `cat-file
+    --batch` gives a size in bytes, so decoding before parsing loses the
+    offsets."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        capture_output=True, input=input_bytes,
+    )
+    if proc.returncode != 0:
+        raise GitError(f"git {' '.join(args)}: {proc.stderr.decode('utf-8', 'replace').strip()}")
+    return proc.stdout
+
+
 def repo_root(path: Path) -> Path:
     """Resolve the repo's top-level directory, or raise GitError."""
     return Path(git(path, "rev-parse", "--show-toplevel"))
