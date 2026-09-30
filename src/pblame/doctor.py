@@ -13,7 +13,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, git_hooks, notes, staging
+from . import config, git_hooks, notes, staging, ui
+from .ui import plural
 from .adapters import claude_code
 from .snapshot import GitError, git, snapshot_tree
 
@@ -135,7 +136,8 @@ def _check_staging(repo: Path) -> list[Check]:
 
     state = staging.load(repo)
     closed = [r for r in state.receipts if not r.is_open]
-    out = [Check(PASS, "staging", f"{len(closed)} receipt(s) awaiting a commit")]
+    out = [Check(PASS, "staging",
+                 f"{len(closed)} prompt{plural(len(closed))} awaiting a commit")]
 
     for r in state.receipts:
         if not r.is_open:
@@ -156,13 +158,14 @@ def _check_history(repo: Path) -> list[Check]:
     except GitError:
         count = 0
     out.append(Check(PASS if count else WARN, "recorded history",
-                     f"{count} commit(s) carry prompt receipts"))
+                     f"{count} commit{plural(count)} carry recorded prompts"))
 
     try:
         head = notes.read(repo, "HEAD")
         if head:
             latest = max(r.prompt.timestamp for r in head)
-            out.append(Check(PASS, "HEAD", f"{len(head)} receipt(s), latest {latest:%Y-%m-%d %H:%M}"))
+            out.append(Check(PASS, "HEAD", f"{len(head)} prompt{plural(len(head))},"
+                                           f" latest {latest:%Y-%m-%d %H:%M}"))
         else:
             out.append(Check(WARN, "HEAD", "no receipts on the current commit"))
     except GitError:
@@ -212,7 +215,7 @@ def _check_secrets(repo: Path) -> list[Check]:
 
     worst = next((s for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
                   if s in found.values()), "LOW")
-    detail = f"{prompts} prompt(s) contain {', '.join(sorted(found))}"
+    detail = f"{prompts} prompt{plural(prompts)} contain {', '.join(sorted(found))}"
     # Only a problem if it is about to be published.
     status = FAIL if (cfg.share.enabled and worst in ("CRITICAL", "HIGH")) else WARN
     out.append(Check(status, "secrets in prompts", detail + f" (worst {worst})"))
@@ -231,22 +234,28 @@ def run(repo: Path) -> list[Check]:
 
 
 def render(checks: list[Check], color: bool = True) -> str:
-    codes = {PASS: "\033[32m", WARN: "\033[33m", FAIL: "\033[31m"}
+    codes = {PASS: ui.GREEN, WARN: ui.YELLOW, FAIL: ui.RED}
+    marks = {PASS: "ok", WARN: "warn", FAIL: "bad"}
+    sym = ui.out.sym
     width = max((len(c.label) for c in checks), default=0)
+
+    def paint(text: str, *c: str) -> str:
+        return f"{''.join(c)}{text}{ui.RESET}" if color else text
+
     out = []
     for c in checks:
-        tag = c.status.upper()
-        if color:
-            tag = f"{codes[c.status]}{tag}\033[0m"
-        out.append(f"  {tag}  {c.label.ljust(width)}  {c.detail}".rstrip())
+        mark = paint(sym[marks[c.status]], codes[c.status], ui.BOLD)
+        out.append(f"  {mark} {paint(c.label.ljust(width), ui.DIM)}  {c.detail}".rstrip())
 
     failed = sum(1 for c in checks if c.status == FAIL)
     warned = sum(1 for c in checks if c.status == WARN)
     out.append("")
     if failed:
-        out.append(f"  {failed} failing check(s) - this repo is NOT reliably recording.")
+        out.append("  " + paint(f"Not recording reliably - {failed} check"
+                                f"{'' if failed == 1 else 's'} failing", ui.RED, ui.BOLD))
     elif warned:
-        out.append(f"  Recording is live. {warned} warning(s) worth a look.")
+        out.append("  " + paint("Recording is live", ui.GREEN, ui.BOLD)
+                   + paint(f", {warned} warning{'' if warned == 1 else 's'}", ui.DIM))
     else:
-        out.append("  Recording is live and healthy.")
+        out.append("  " + paint("Recording is live and healthy", ui.GREEN, ui.BOLD))
     return "\n".join(out)

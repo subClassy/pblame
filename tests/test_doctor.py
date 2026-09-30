@@ -120,7 +120,7 @@ def test_corrupt_staging_is_caught(repo):
 def test_exit_code_and_render(repo, capsys, monkeypatch):
     monkeypatch.chdir(repo)
     assert main(["doctor"]) == 1  # nothing installed yet
-    assert "NOT reliably recording" in capsys.readouterr().out
+    assert "Not recording reliably" in capsys.readouterr().out
 
     init(repo)
     (repo / "a.py").write_text("x\n")

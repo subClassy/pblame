@@ -198,6 +198,7 @@ def test_redact_command_prints_clean_text_and_a_summary(repo, capsys, monkeypatc
     out, err = capsys.readouterr()
     assert out == "deploy with [REDACTED_AWS_KEY] to prod\n"   # stdout is pipeable
     assert "AWS_KEY" in err and "CRITICAL" in err              # summary on stderr
+    assert "pblame:" not in err                               # no prefix noise
 
 
 def test_redact_command_honours_repo_config(repo, capsys, monkeypatch):

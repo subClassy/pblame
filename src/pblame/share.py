@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import notes, redact
+from .snapshot import GitError, git
+from .ui import plural
 from .config import Config
 from .snapshot import GitError, git
 
@@ -136,7 +138,7 @@ def push(repo: Path, cfg: Config) -> list[Planned]:
 def describe(planned: list[Planned], redacted_only: bool = False) -> str:
     """Human-readable preview: exactly the text that would leave."""
     if not planned:
-        return "  nothing to share - no prompts are recorded yet"
+        return "  nothing recorded yet"
     lines, total, hits = [], 0, 0
     for item in planned:
         shown = [r for r in item.receipts
@@ -152,6 +154,6 @@ def describe(planned: list[Planned], redacted_only: bool = False) -> str:
                 found = ", ".join(sorted(r.prompt.secrets))
                 lines.append(f"      ^ redacted: {found}")
         lines.append("")
-    lines.append(f"  {total} prompt(s) across {len(planned)} commit(s),"
-                 f" {hits} secret(s) redacted")
+    lines.append(f"  {total} prompt{plural(total)} across {len(planned)}"
+                 f" commit{plural(len(planned))}, {hits} secret{plural(hits)} redacted")
     return "\n".join(lines)
