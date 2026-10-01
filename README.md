@@ -180,9 +180,12 @@ lines across later commits, renames included) against those notes.
 - **A prompt that changes no file leaves no record** (questions, "it already does that").
 - Amend and rebase are handled (`post-rewrite`). Content that moves *between files*, or a
   whole-file reformat, will still lose attribution.
-- Each prompt costs one `git add -A` into a temporary index. On a very large working tree
-  that's a noticeable pause per turn; `pblame doctor` runs the same operation, so its
-  speed tells you what to expect.
+- **Every prompt costs two working-tree snapshots.** `pblame doctor` reports the measured
+  number for your repo, which is the honest answer — roughly 190ms per prompt on a
+  20,000-file tree. If it reports more than a second, `git config core.fsmonitor true`
+  and `git config core.untrackedCache true` let git skip the file-system sweep.
+- Snapshots leave about three loose git objects per prompt (144 KiB after 20 prompts on a
+  20,000-file repo). Ordinary `git gc` packs them.
 - Git worktrees and submodules (where `.git` is a file) aren't handled yet.
 - Text files only.
 
