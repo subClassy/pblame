@@ -130,3 +130,25 @@ def test_exit_code_and_render(repo, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "Recording is live" in out
     assert "\033[" not in out  # not a tty under capsys
+
+
+def test_live_snapshot_reports_its_cost(repo):
+    """A prompt costs two snapshots, so the number belongs in front of the
+    user rather than in a benchmark nobody runs."""
+    init(repo)
+    (repo / "a.py").write_text("x\n")
+    check = next(c for c in doctor.run(repo) if c.label == "live snapshot")
+    assert "per prompt" in check.detail
+    assert check.status == doctor.PASS   # a small repo is fast
+
+
+def test_a_slow_snapshot_points_at_git_fsmonitor(repo, monkeypatch):
+    init(repo)
+    import time as _time
+    real = _time.perf_counter
+    calls = iter([0.0, 2.0])  # pretend the snapshot took two seconds
+    monkeypatch.setattr(doctor.time, "perf_counter", lambda: next(calls, real()))
+
+    check = next(c for c in doctor.run(repo) if c.label == "live snapshot")
+    assert check.status == doctor.WARN
+    assert "fsmonitor" in check.detail

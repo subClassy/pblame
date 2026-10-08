@@ -6,7 +6,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from . import adapters, blame, config, doctor, git_hooks, notes, redact, share, ui
+from . import (adapters, blame, config, doctor, git_hooks, index, notes, redact,
+               repair, searchview, share, ui)
 from .ui import plural
 from .snapshot import GitError, git, repo_root
 
@@ -278,6 +279,71 @@ def cmd_pull(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_search(args: argparse.Namespace) -> int:
+    try:
+        repo = repo_root(Path.cwd())
+    except GitError as e:
+        ui.err.bad(str(e))
+        return 1
+
+    try:
+        query = index.Query(
+            text=" ".join(args.text) or None,
+            regex=args.regex,
+            path=args.path,
+            since=index.parse_when(args.since) if args.since else None,
+            until=index.parse_when(args.until) if args.until else None,
+            model=args.model,
+            author=args.author,
+            mine=args.mine,
+        )
+    except ValueError as e:
+        ui.err.bad(f"Cannot read a date from that ({e})")
+        return 1
+
+    entries = index.load(repo)
+    hits, matcher = index.search(entries, query)
+    if args.limit and len(hits) > args.limit:
+        hits = hits[: args.limit]
+
+    if args.json:
+        print(json.dumps(index.to_json(hits), indent=2))
+        return 0
+
+    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
+    print(searchview.render(hits, matcher, total=len(entries), color=color))
+    return 0 if hits else 1
+
+
+def cmd_repair(args: argparse.Namespace) -> int:
+    """Re-clean prompts recorded before clean_prompt existed, and refresh the
+    secret scan. Previews unless --write, because it rewrites history."""
+    try:
+        repo, cfg = _repo_and_config()
+    except (GitError, config.ConfigError) as e:
+        ui.err.bad(str(e))
+        return 1
+
+    plans = repair.plan(repo, cfg)
+    if not plans:
+        ui.out.ok("Nothing to repair")
+        return 0
+
+    if not args.write:
+        ui.out.plain("Would change:")
+        ui.out.plain()
+        ui.out.plain(repair.describe(plans))
+        ui.out.plain()
+        ui.out.next_step("pblame repair --write", "apply these")
+        return 0
+
+    changed = repair.apply(repo, plans)
+    ui.out.ok(f"Repaired {changed} prompt{plural(changed)}"
+              f" across {len(plans)} note{plural(len(plans))}")
+    ui.out.note(f"The previous state is still in {notes.NOTES_REF}@{{1}}")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
@@ -377,6 +443,26 @@ def main(argv: list[str] | None = None) -> int:
     red = sub.add_parser("redact", help="show what redaction would do to some text")
     red.add_argument("file", nargs="?", default="-", help="file to read, or - for stdin")
     red.set_defaults(func=cmd_redact)
+
+    find = sub.add_parser("search", help="search recorded prompts")
+    find.add_argument("text", nargs="*", help="words to look for in the prompt text")
+    find.add_argument("--regex", action="store_true", help="treat the text as a regex")
+    find.add_argument("--path", help="only prompts that touched this file or glob")
+    find.add_argument("--since", help="ISO date, or an age like 7d / 2w / 3m")
+    find.add_argument("--until", help="ISO date, or an age like 7d / 2w / 3m")
+    find.add_argument("--model", help="only prompts answered by this model")
+    find.add_argument("--author", help="only prompts from this commit author")
+    find.add_argument("--mine", action="store_true",
+                      help="exclude prompts that only came from teammates")
+    find.add_argument("--limit", type=int, default=20, help="0 for no limit")
+    find.add_argument("--json", action="store_true")
+    find.set_defaults(func=cmd_search)
+
+    rep = sub.add_parser("repair",
+                         help="re-clean recorded prompts and refresh the secret scan")
+    rep.add_argument("--write", action="store_true",
+                     help="apply the changes instead of previewing them")
+    rep.set_defaults(func=cmd_repair)
 
     doc = sub.add_parser("doctor", help="check that this repo is actually being recorded")
     doc.add_argument("repo", nargs="?", default=".")

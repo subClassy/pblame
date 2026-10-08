@@ -65,11 +65,33 @@ Just work. Prompt Claude Code as normal, commit when you like.
 |---|---|
 | `pblame blame <file>` | the file, annotated with the prompt behind each line (`--json` for machines) |
 | `pblame show [commit]` | every prompt recorded on a commit, with the files and line ranges it produced |
+| `pblame search <words>` | find a prompt across all recorded history |
 | `pblame doctor` | is this repo actually recording right now? Run it if anything feels off |
 | `pblame share` | opt in to sharing prompts with your team (`--off` to stop) |
 | `pblame push` / `pull` | share, or fetch what teammates shared (`push --dry-run` to preview) |
 | `pblame redact <file>` | see what redaction would do to some text, without recording |
+| `pblame repair` | re-clean prompts recorded by an older version (`--write` to apply) |
 | `pblame uninstall` | remove the hooks; recorded history is kept (`--purge` deletes that too) |
+
+## Searching what you have already asked for
+
+Once a repo has history, it becomes a record of how things were done:
+
+```
+pblame search "rate limit"              # words in the prompt text
+pblame search --path src/auth.py        # everything that touched a file
+pblame search --path "*.css" --since 2w # a glob, recently
+pblame search --model sonnet            # by model
+pblame search --author bob --mine       # by commit author; --mine skips teammates'
+pblame search "retry" --regex --json    # regex, machine-readable
+```
+
+Newest first, the matched words highlighted, with the files and line ranges each prompt
+produced. Exit status is non-zero when nothing matched, so it composes in a shell the way
+`grep` does.
+
+It reads the whole notes tree in two git calls rather than one per commit, so it stays
+fast on a repo with thousands of recorded commits.
 
 ## Sharing with a team
 
@@ -156,12 +178,17 @@ lines across later commits, renames included) against those notes.
   access control, and notes are not encrypted at rest.
 - **One Claude Code session per repo at a time.** Two at once won't lose data, but their
   turns overlap in the snapshots and lines get attributed to the wrong prompt.
+- Prompts recorded before v0.1 carry the editor context Claude Code wraps around them.
+  `pblame repair` strips it, previewing first.
 - **A prompt that changes no file leaves no record** (questions, "it already does that").
 - Amend and rebase are handled (`post-rewrite`). Content that moves *between files*, or a
   whole-file reformat, will still lose attribution.
-- Each prompt costs one `git add -A` into a temporary index. On a very large working tree
-  that's a noticeable pause per turn; `pblame doctor` runs the same operation, so its
-  speed tells you what to expect.
+- **Every prompt costs two working-tree snapshots.** `pblame doctor` reports the measured
+  number for your repo, which is the honest answer — roughly 190ms per prompt on a
+  20,000-file tree. If it reports more than a second, `git config core.fsmonitor true`
+  and `git config core.untrackedCache true` let git skip the file-system sweep.
+- Snapshots leave about three loose git objects per prompt (144 KiB after 20 prompts on a
+  20,000-file repo). Ordinary `git gc` packs them.
 - Git worktrees and submodules (where `.git` is a file) aren't handled yet.
 - Text files only.
 

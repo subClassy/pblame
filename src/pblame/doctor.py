@@ -9,6 +9,7 @@ check here either proves a link in that chain or surfaces its wreckage.
 import json
 import re
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -103,16 +104,29 @@ def _check_git_hooks(repo: Path) -> list[Check]:
 
 
 def _check_recording_works(repo: Path) -> Check:
-    """Actually exercise the recorder against this repo's real content.
+    """Actually exercise the recorder against this repo's real content, and
+    report how long it took.
 
     This is the check that would have caught the encoding failure: it only
-    breaks once a file holds a byte the recorder cannot handle.
+    breaks once a file holds a byte the recorder cannot handle. The timing is
+    the honest answer to "how will this behave on my repo" — a prompt costs
+    two of these, and nobody should have to guess.
     """
     try:
+        start = time.perf_counter()
         snapshot_tree(repo)
-        return Check(PASS, "live snapshot", "recorder can read this working tree")
+        elapsed = time.perf_counter() - start
     except Exception as e:
         return Check(FAIL, "live snapshot", f"{type(e).__name__}: {e}")
+
+    per_prompt = elapsed * 2
+    detail = f"{elapsed * 1000:.0f}ms, so ~{per_prompt * 1000:.0f}ms per prompt"
+    if per_prompt < 1.0:
+        return Check(PASS, "live snapshot", detail)
+    # Big working tree. git's own file-system monitor skips the stat sweep.
+    return Check(WARN, "live snapshot",
+                 f"{detail} - try `git config core.fsmonitor true`"
+                 " and `git config core.untrackedCache true`")
 
 
 def _check_hook_log(repo: Path) -> Check:

@@ -103,6 +103,28 @@ Keep saying that out loud.
   recording. Not urgent at one tester. Reconsider at five, or the first time someone
   cannot install Python.
 
+## Measured scaling limits (2026-09-30)
+
+Where the cost actually is, so nobody optimises by guess:
+
+| | cost | scales with |
+|---|---|---|
+| `snapshot_tree` (x2 per prompt) | 94ms on 20,000 files | number of tracked files |
+| `git blame` | 40ms typical, 330ms at 20,000 commits of one file's history | that file's history depth, and only until every line is attributed |
+| `index.load` (search) | 2 subprocesses, any size | nothing — it reads the notes tree in one pass |
+| loose objects | ~3 per prompt | normal `git gc` packs them |
+
+**No Python library would help.** Seeding the snapshot index from the repo's real one made
+it 20x faster, and after that the remaining 94ms is process spawn, not work: enabling git's
+own `core.fsmonitor` and `core.untrackedCache` changed nothing measurable at 20,000 files.
+`pygit2` would remove the spawn — about 150ms per prompt — which is invisible next to an
+agent turn, and it would add a compiled dependency that the eventual Go port discards.
+`dulwich` is pure Python and slower at tree hashing; `GitPython` wraps the same CLI.
+
+The lever that *would* matter past ~100,000 files is `core.fsmonitor`, because the stat
+sweep is O(files) even with a warm index. Rather than guess the threshold, `pblame doctor`
+reports the measured snapshot time and recommends it when the number gets big.
+
 ## Known debt, deliberately unpaid
 
 **Notes are backward but not forward compatible.** Since Phase 1, notes are written as
