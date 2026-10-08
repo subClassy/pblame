@@ -1,5 +1,10 @@
 # Handover Summary — Week-1 MVP of a prompt-attribution layer over git ("git blame, plus the prompt")
 
+> **Status: historical.** Kept for the product thesis, the pricing, and the ruled-out
+> dead ends — all of which still stand. Its week-1 plan does not: "one prompt = one
+> commit" and the filesystem watcher were both dropped on day 2. See
+> [STATUS.md](STATUS.md).
+
 ## Where we are
 
 The goal is a working one-week demo of a tool that records the prompt behind every AI-generated code change and lets you run a `pblame` command that shows, line by line, which English instruction produced that line. Nothing has been built yet — this session was entirely research, idea-validation and planning. The immediate next action is to scaffold the Python project and build the filesystem-watching recorder (day 1 of the five-day plan below).

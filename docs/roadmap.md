@@ -1,7 +1,8 @@
 # Roadmap — from the week-1 MVP to a product
 
-Written 2026-09-28. Supersedes the week planning in [gameplan-v2.md](gameplan-v2.md),
-which stays the record of *why* the architecture is what it is.
+Written 2026-09-28, updated 2026-10-08. Supersedes the week planning in
+[gameplan-v2.md](gameplan-v2.md), which stays the record of *why* the architecture is what
+it is. [STATUS.md](STATUS.md) indexes every document and the backlog.
 
 ## Status quo
 
@@ -62,7 +63,7 @@ Depends entirely on Phase 1 — a PR comment needs notes the CI runner can fetch
 and shrug, screens 1 and 3 are a nicer audit log, not a review tool, and pricing has to
 move down accordingly.
 
-## Phase 3 — query and audit (≈5 days) ← recommended next
+## Phase 3 — query and audit ✔ done (merged 2026-10-08)
 
 Screen 3: search across recorded history. "Show me everything the model wrote in
 `payments/` last quarter", "which prompts touched auth", "what was asked for before this
@@ -72,11 +73,17 @@ service (milestone 4 of the original plan).
 This is the half of the product that sells to compliance rather than to engineers, and
 it is the cheapest one to build on top of what exists.
 
-**Why this before Phase 2.** Shared prompts were chosen partly to build a team prompt
-library, and search *is* that product. It also serves the only kind of user we actually
-have: a solo developer on a real project, who has no review problem but does want "how
-did I get it to do that last time". And it needs no GitHub repo, no CI, and no second
-person to be worth using — all of which Phase 2 requires before it can even be judged.
+Taken before Phase 2 because search *is* the prompt-library product, it serves the only
+kind of user we actually have, and it needs no GitHub repo or second person to be worth
+using.
+
+Delivered as `pblame search` (text, path, date, model, author), plus two things that came
+out of measuring rather than assuming: the snapshot index fix (20x, and a correctness bug
+with it) and the conclusion that no Python git binding would help. `pblame repair` came
+with it, for prompts recorded before the text cleaning existed.
+
+**Gate, unanswered:** do *you* reach for it, or for `git log`? That is what
+[day 7](day7-dummy-clock-phase13.md) is for.
 
 ## Phase 4 — the outcomes join (open-ended, a research bet)
 
@@ -88,15 +95,28 @@ Nothing before this proves the venture thesis. If provenance turns out not to pr
 defects, what remains is a well-made audit log — a real business, not a venture-scale one.
 Keep saying that out loud.
 
+## Agreed sequence (2026-10-08)
+
+1. ✔ `pblame repair`
+2. ✔ merge search into main
+3. **[Day 7 validation](day7-dummy-clock-phase13.md)** — sharing, search and repair on the
+   real dummy_clock. Phases 1 and 3 have only been exercised on scratch repos.
+4. **[The envdiff demo](day6-b-envdiff-demo.md)** — still the only planned artifact to
+   show anyone.
+5. Phase 2.
+
+Chasing the external tester was dropped by decision.
+
 ## Running alongside, not after
 
-- **Reviewer validation (≈1 day, do it during Phase 1).** Put `pblame blame` on a real
-  file in front of three to five engineering managers and watch whether they lean in. It
-  is the cheapest way to learn whether Phase 2 should be a PR comment, a check
-  annotation, or something else — and those lead to different products.
-- **The demo recording ([day6-b](day6-b-envdiff-demo.md)).** Still unrecorded. Worth 40
-  minutes before any of those conversations; dummy_clock cannot serve as the artifact
-  because of the blackout hole in its history.
+- **Reviewer validation (≈1 day).** Put `pblame blame` on a real file in front of three to
+  five engineering managers and watch whether they lean in. It is the cheapest way to
+  learn whether Phase 2 should be a PR comment, a check annotation, or something else —
+  and those lead to different products. Needs the demo recorded first.
+- **Nobody is using this yet, including us.** dummy_clock has gone four weeks without a
+  commit and the external tester never reported back. Three phases of engineering against
+  zero usage signal is now a larger risk than any missing feature; steps 3 and 4 above are
+  the cheapest way to change that.
 - **The Go or Rust port.** The gameplan put this at milestone 2 and we skipped it.
   Distribution friction is real — the friend needed Python and a wheel — and blameprompt
   is immune by construction to the encoding bug class that cost us 26 minutes of

@@ -1,5 +1,10 @@
 # Gameplan v2 — post-blameprompt revision (2026-09-07)
 
+> **Status: partly outdated.** The architecture, capture semantics, assumptions and
+> day-5a findings below are still accurate. The **"Revised week" schedule is dead** —
+> every day of it is done or superseded. The live plan is [roadmap.md](roadmap.md),
+> and [STATUS.md](STATUS.md) indexes everything.
+
 Supersedes the week-1 plan in [handover-prompt-attribution-mvp.md](handover-prompt-attribution-mvp.md).
 The product thesis, pricing, roadmap milestones 4–5, and dead-ends list there still stand.
 

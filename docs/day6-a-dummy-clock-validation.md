@@ -1,5 +1,9 @@
 # Day 6a — dummy_clock validation run
 
+> **Status: done (13 Sep), kept as a record.** All eight day-5b fixes confirmed on real
+> history, plus two bugs no unit test had caught — both from fixes interacting. The
+> successor is [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md).
+
 Short, hostile, in-scope. Every step attacks a fix landed in `21db8d8`, using a repo
 that already holds **real prompts recorded on 7 Sep**. The strongest thing this can prove
 is that day-1 attribution survives a rename three days later.

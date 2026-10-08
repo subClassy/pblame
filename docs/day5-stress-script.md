@@ -1,5 +1,9 @@
 # Day 5 — dummy_clock stress script
 
+> **Status: done (8–10 Sep), kept as a record.** It found eight problems, including a
+> recorder that had silently stopped for 26 minutes. All are fixed; the findings live
+> in [gameplan-v2.md](gameplan-v2.md#stress-test-findings-day-5a-and-what-they-changed).
+
 20 prompts plus git operations, ordered to attack the assumptions in
 [gameplan-v2.md](gameplan-v2.md). Run every prompt in a Claude Code session whose
 project folder **is** `C:\Users\subCl\Documents\Fun_stuff\apps\dummy_clock` —

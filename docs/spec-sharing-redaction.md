@@ -1,5 +1,10 @@
 # Spec — sharing and redaction (Phase 1)
 
+> **Status: delivered (merged 2026-09-29).** Two deliberate deviations: `post-checkout`
+> was not built (git never clones hooks, so `post-merge` does the useful half), and
+> sharing is opt-in from a gitignored file rather than the committed one. Both are
+> explained in [STATUS.md](STATUS.md#deviations-from-the-specs-recorded).
+
 Branch `feat/sharing-redaction`. Goal: a second person can see the record, and nobody
 leaks a secret doing it.
 

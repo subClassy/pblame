@@ -1,5 +1,9 @@
 # Day 6b — the demo recording: `envdiff`
 
+> **Status: scheduled, never run.** Still the only planned artifact to show anyone,
+> and still blocked on nothing but doing it. Run after
+> [day 7](day7-dummy-clock-phase13.md).
+
 A CLI that compares two `.env` files and reports what's missing, extra or changed —
 **without printing secret values**. Chosen because a reviewer understands it in one
 sentence, it fits in two short files you can read on one screen, and its security
