@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (adapters, blame, config, doctor, git_hooks, index, notes, redact,
-               searchview, share, ui)
+               repair, searchview, share, ui)
 from .ui import plural
 from .snapshot import GitError, git, repo_root
 
@@ -315,6 +315,35 @@ def cmd_search(args: argparse.Namespace) -> int:
     return 0 if hits else 1
 
 
+def cmd_repair(args: argparse.Namespace) -> int:
+    """Re-clean prompts recorded before clean_prompt existed, and refresh the
+    secret scan. Previews unless --write, because it rewrites history."""
+    try:
+        repo, cfg = _repo_and_config()
+    except (GitError, config.ConfigError) as e:
+        ui.err.bad(str(e))
+        return 1
+
+    plans = repair.plan(repo, cfg)
+    if not plans:
+        ui.out.ok("Nothing to repair")
+        return 0
+
+    if not args.write:
+        ui.out.plain("Would change:")
+        ui.out.plain()
+        ui.out.plain(repair.describe(plans))
+        ui.out.plain()
+        ui.out.next_step("pblame repair --write", "apply these")
+        return 0
+
+    changed = repair.apply(repo, plans)
+    ui.out.ok(f"Repaired {changed} prompt{plural(changed)}"
+              f" across {len(plans)} note{plural(len(plans))}")
+    ui.out.note(f"The previous state is still in {notes.NOTES_REF}@{{1}}")
+    return 0
+
+
 def cmd_doctor(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path(args.repo).resolve())
@@ -428,6 +457,12 @@ def main(argv: list[str] | None = None) -> int:
     find.add_argument("--limit", type=int, default=20, help="0 for no limit")
     find.add_argument("--json", action="store_true")
     find.set_defaults(func=cmd_search)
+
+    rep = sub.add_parser("repair",
+                         help="re-clean recorded prompts and refresh the secret scan")
+    rep.add_argument("--write", action="store_true",
+                     help="apply the changes instead of previewing them")
+    rep.set_defaults(func=cmd_repair)
 
     doc = sub.add_parser("doctor", help="check that this repo is actually being recorded")
     doc.add_argument("repo", nargs="?", default=".")

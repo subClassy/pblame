@@ -70,6 +70,7 @@ Just work. Prompt Claude Code as normal, commit when you like.
 | `pblame share` | opt in to sharing prompts with your team (`--off` to stop) |
 | `pblame push` / `pull` | share, or fetch what teammates shared (`push --dry-run` to preview) |
 | `pblame redact <file>` | see what redaction would do to some text, without recording |
+| `pblame repair` | re-clean prompts recorded by an older version (`--write` to apply) |
 | `pblame uninstall` | remove the hooks; recorded history is kept (`--purge` deletes that too) |
 
 ## Searching what you have already asked for
@@ -177,6 +178,8 @@ lines across later commits, renames included) against those notes.
   access control, and notes are not encrypted at rest.
 - **One Claude Code session per repo at a time.** Two at once won't lose data, but their
   turns overlap in the snapshots and lines get attributed to the wrong prompt.
+- Prompts recorded before v0.1 carry the editor context Claude Code wraps around them.
+  `pblame repair` strips it, previewing first.
 - **A prompt that changes no file leaves no record** (questions, "it already does that").
 - Amend and rebase are handled (`post-rewrite`). Content that moves *between files*, or a
   whole-file reformat, will still lose attribution.

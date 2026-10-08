@@ -95,6 +95,18 @@ def _commit_meta(repo: Path) -> dict[str, tuple[str, str]]:
     return meta
 
 
+def notes_by_commit(repo: Path, ref: str) -> dict[str, list[Receipt]]:
+    """{commit sha: receipts} for one ref, read in two git calls.
+
+    Keeps the ref separate, unlike `load`, because anything rewriting notes
+    has to put them back where it found them.
+    """
+    blobs = _note_blobs(repo, ref)
+    bodies = _read_blobs(repo, list(blobs.values()))
+    return {sha: notes.parse(bodies.get(blob, ""))
+            for sha, blob in blobs.items()}
+
+
 def _entries_for(repo: Path, ref: str, shared: bool) -> list[Entry]:
     blobs = _note_blobs(repo, ref)
     bodies = _read_blobs(repo, list(blobs.values()))
