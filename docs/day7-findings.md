@@ -1,7 +1,7 @@
 # Day 7 findings — observations from the run, nothing fixed yet
 
 From the terminal log of [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md),
-steps 0–6. Steps 7–9 still to come; their findings get appended here.
+steps 0–9, complete.
 
 Nothing in this file has been fixed. Each entry is what happened, why, and what the fix
 would be.
@@ -20,6 +20,14 @@ would be.
 - **Repair did what it was for.** 10 prompts across 8 notes, and
   `pblame push --dry-run` then reported **0 secrets redacted** where it previously found 5.
 - **First real snapshot cost:** 83ms, ~165ms per prompt, on a repo with ~5 files.
+- **`post-rewrite` with sharing on.** The amend carried the receipt onto `3435950`, and
+  `pblame show HEAD` found it there.
+- **The counts reconcile.** `search` reports 29 of 29 while `push` reports 28 from 14
+  commits: 28 local plus the teammate's one shared prompt. The stale mirror copy created by
+  the amend (finding 6) is suppressed because `index.load` folds by prompt id and prefers
+  local — which is why it is 29 and not 30.
+- **`hook.log` stayed empty for the entire run**, across nine steps, two repos, an amend
+  and concurrent pushes.
 
 ## Confirmed bugs
 
@@ -120,6 +128,58 @@ small ref beats a backgrounded failure nobody sees". That assumed the work was s
 With 1 and 2 the no-op push should fall well under a second, which also rescues the
 foreground choice rather than forcing a retreat to backgrounding.
 
+### 6. A rewrite fixes the local record and leaves the mirror stale
+
+After `git commit --amend`:
+
+```
+local ref  - note on old sha: 0 | on new sha: 1     correct
+shared ref - note on old sha: 1 | on new sha: 0     stale
+```
+
+**Reason.** `notes.remap` takes a `ref` argument and the `post-rewrite` hook never passes
+one, so every call defaults to the local ref. The mirror keeps the note on a commit that no
+longer exists, and holds nothing for the replacement until the next push re-stages it.
+
+Consequences: the mirror accumulates notes for unreachable commits with nothing to clean
+them, and the shared record disagrees with the local one after any amend or rebase. Not
+visible in `search` today only because `index.load` prefers the local copy.
+
+**Fix.** Remap both refs in `cmd_rewrite`. Deleting the orphaned mirror entry is the part
+that actually needs the ref argument.
+
+### 7. `uninstall --purge` says the prompts are gone and leaves a full copy
+
+```
+deleted  refs/notes/pblame (every recorded prompt)
+refs left behind:        refs/notes/pblame-shared
+prompts still readable:  "text":"the only prompt"
+```
+
+**Reason.** `cmd_uninstall` deletes `notes.NOTES_REF` and `.git/pblame/`, and knows nothing
+about `SHARED_REF` or `FETCH_REF` — both added later for sharing. The mirror is redacted, so
+no *secret* survives, but the prompt text does, in full.
+
+This is the one finding that is a broken promise rather than a rough edge. `--purge` exists
+for the person who wants the record gone, and it tells them it is gone while it is not.
+
+**Fix.** Purge every pblame ref, not the one the code knew about first. Worth a test that
+enumerates `refs/notes/pblame*` afterwards rather than naming them, so the next ref added
+cannot be forgotten the same way.
+
+### 8. The cleanup step does not clean up
+
+Three gaps in step 9 of the script, all mine:
+
+* `Remove-Item -Recurse -Force teammate` failed with *"being used by another process"* —
+  `code .` had been run in that folder. It succeeded on a retry. The script should say to
+  close the editor first.
+* `dummy_clock.backup` and `before-search.txt` are never removed, so the run leaves litter
+  beside the repo.
+* The sharing refs (`refs/notes/pblame-shared`, and `pblame-remote` in a repo that pulled)
+  survive `git remote remove` and deleting the local config. Nothing in the script removes
+  them, and per finding 7 `uninstall --purge` would not have either.
+
 ## Not bugs — recorded so we do not "fix" them later
 
 - **`--path "*.js" --since 3w` returned nothing, correctly.** The newest prompts at that
@@ -149,9 +209,18 @@ foreground choice rather than forcing a retreat to backgrounding.
 - **`claude-opus-5-5` appears as a model id** on the teammate's prompt. Probably genuine;
   worth one glance at the transcript to rule out a parsing artifact.
 
-## Steps 7–9
+## Verdict
 
-Not yet run. Step 7 (amend with sharing on) is meant for **dummy_clock** — the repo with
-the real history, where `post-rewrite` has notes worth carrying. One caveat the script
-omits: dummy_clock has already pushed, so an amend makes the branch diverge from the
-remote. Do **not** `git push` the branch afterwards; `pblame push` alone is the step.
+Nine steps, two repos, five scratch reproductions. Seven bugs, of which **one is a broken
+promise** (finding 7) and **one is a scaling fault that undermines a documented design
+decision** (finding 5). Nothing silently lost data, and `hook.log` stayed empty throughout,
+which is the property this project has paid most to earn.
+
+Fix order, worst first:
+
+1. **7** — purge leaves a full copy of every prompt. A trust bug.
+2. **5** — every push redoes the whole history; ~75s per push at 500 commits.
+3. **6** — a rewrite leaves the mirror stale and unreachable notes uncollected.
+4. **3** — the push refusal names a file that deliberately cannot do what it asks.
+5. **1, 2** — `--path` with a shell-completed path; redirected output mangles non-ASCII.
+6. **4, 8** — blank-line groups in `blame`; the cleanup step.

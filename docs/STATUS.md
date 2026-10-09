@@ -7,8 +7,8 @@ Start here. Written 2026-10-08, after search and repair merged.
 | Doc | Status | Read it for |
 |---|---|---|
 | **[roadmap.md](roadmap.md)** | **live** | The plan. Phases, gates, measured limits, known debt. |
-| [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | **in progress — steps 0–6 done** | Validating sharing, search and repair on the real dummy_clock. |
-| [day7-findings.md](day7-findings.md) | **open — 5 bugs, unfixed** | What the run found. Fix after step 9. |
+| [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | done (8 Oct) | Validating sharing, search and repair on the real dummy_clock. |
+| [day7-findings.md](day7-findings.md) | **open — 7 bugs, unfixed** | What the run found, worst first. Fix next. |
 | [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — after day 7** | The demo recording. Never run. Still the only planned artifact to show anyone. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
 | [gameplan-v2.md](gameplan-v2.md) | **partly outdated** | Architecture rationale and the day-5a findings: still true. Its "Revised week" schedule is dead — superseded by roadmap.md. |
@@ -32,9 +32,10 @@ Start here. Written 2026-10-08, after search and repair merged.
 
 1. ✔ `pblame repair` — built and merged
 2. ✔ merge `feat/search` into main
-3. **→ run [day 7](day7-dummy-clock-phase13.md)** on dummy_clock (yours)
-4. **→ record [the envdiff demo](day6-b-envdiff-demo.md)** (yours)
-5. then Phase 2 — the GitHub PR surface
+3. ✔ day 7 validation — found 7 bugs, see [day7-findings.md](day7-findings.md)
+4. **→ fix those 7**, worst first
+5. **→ record [the envdiff demo](day6-b-envdiff-demo.md)** (yours)
+6. then Phase 2 — the GitHub PR surface
 
 Dropped by decision: chasing the external tester's feedback.
 
