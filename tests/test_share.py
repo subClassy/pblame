@@ -8,6 +8,8 @@ from conftest import run_git
 
 from pblame import config, git_hooks, notes, share
 from pblame.adapters import claude_code
+from pblame.models import FileChange
+from test_staging import make_receipt
 from pblame.snapshot import git
 
 
@@ -381,3 +383,65 @@ def test_remap_counts_only_the_developers_own_prompts(repo, origin):
     run_git(repo, "commit", "-q", "--amend", "--no-edit")
 
     assert notes.remap_all(repo, old, git(repo, "rev-parse", "HEAD")) == 1
+
+
+def test_a_rejected_push_does_not_clobber_what_the_pull_brought_in(repo, origin):
+    """stage used to merge against the live note; it now writes a list computed
+    in advance. On the reject-pull-retry path that list predates the pull, so a
+    teammate's entry for the same commit could be overwritten."""
+    sha = record(repo, "alice's prompt", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    # A teammate adds a receipt to the *same* commit and pushes first, which is
+    # what makes our push get rejected.
+    theirs = make_receipt(text="teammate's prompt on the same commit")
+    theirs.post_tree = "b" * 40
+    theirs.files = [FileChange(path="app.py", ranges=[(2, 2)])]
+    bare = origin
+    run_git(repo, "fetch", str(bare), f"+{notes.NOTES_REF}:{notes.FETCH_REF}")
+    run_git(repo, "update-ref", "refs/notes/tmp-theirs", notes.FETCH_REF)
+    notes.merge_into(repo, sha, [theirs], "refs/notes/tmp-theirs")
+    run_git(repo, "push", str(bare), f"refs/notes/tmp-theirs:{notes.NOTES_REF}")
+
+    # Now we record more and push: rejected, pulled, retried.
+    record(repo, "alice's second prompt", body="base\nalice\nmore\n")
+    share.push(repo, cfg_of(repo))
+    share.pull(repo, cfg_of(repo))
+
+    shared = {r.prompt.text for r in notes.read(repo, sha, notes.SHARED_REF)}
+    assert "alice's prompt" in shared
+    assert "teammate's prompt on the same commit" in shared, \
+        "the retry overwrote what the pull brought in"
+
+
+def test_retry_keeps_a_teammates_entry_on_a_commit_we_also_changed(repo, origin):
+    """The sharp version of the above: our note for that commit changed too, so
+    stage does not skip it, and the list it writes predates the pull."""
+    sha = record(repo, "alice's first", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    # Teammate adds a receipt to the same commit and pushes first.
+    theirs = make_receipt(text="teammate's prompt")
+    theirs.post_tree = "b" * 40
+    theirs.files = [FileChange(path="app.py", ranges=[(2, 2)])]
+    run_git(repo, "fetch", str(origin), f"+{notes.NOTES_REF}:{notes.FETCH_REF}")
+    run_git(repo, "update-ref", "refs/notes/tmp-theirs", notes.FETCH_REF)
+    notes.merge_into(repo, sha, [theirs], "refs/notes/tmp-theirs")
+    run_git(repo, "push", str(origin), f"refs/notes/tmp-theirs:{notes.NOTES_REF}")
+
+    # And *our* note for that same commit also gains a receipt, so the mirror
+    # is out of date for it and stage will not skip it.
+    mine = make_receipt(text="alice's second on the same commit")
+    mine.post_tree = "b" * 40
+    mine.files = [FileChange(path="app.py", ranges=[(1, 1)])]
+    notes.merge_into(repo, sha, [mine])
+
+    share.push(repo, cfg_of(repo))      # rejected, pulled, retried
+    share.pull(repo, cfg_of(repo))
+
+    shared = {r.prompt.text for r in notes.read(repo, sha, notes.SHARED_REF)}
+    assert "alice's first" in shared
+    assert "alice's second on the same commit" in shared
+    assert "teammate's prompt" in shared, "the retry overwrote the pulled entry"

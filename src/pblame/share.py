@@ -153,6 +153,11 @@ def push(repo: Path, cfg: Config) -> list[Planned]:
         # Someone else pushed first. Merge their work in and try once more —
         # never force, or we would delete what they shared.
         pull(repo, cfg)
+        # Re-plan rather than reuse: each plan carries the exact note it will
+        # write, computed against the mirror as it was *before* the pull.
+        # Writing those stale lists back deleted the entries the pull had just
+        # brought in, which is the failure this whole design exists to avoid.
+        planned = plan(repo, cfg)
         stage(repo, planned)
         # --no-verify keeps this from re-entering the pre-push hook.
         git(repo, "push", "--no-verify", cfg.share.remote, refspec)
