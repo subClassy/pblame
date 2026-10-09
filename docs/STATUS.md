@@ -9,7 +9,8 @@ Start here. Written 2026-10-08, after search and repair merged.
 | **[roadmap.md](roadmap.md)** | **live** | The plan. Phases, gates, measured limits, known debt. |
 | [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | done (8 Oct) | Validating sharing, search and repair on the real dummy_clock. |
 | [day7-findings.md](day7-findings.md) | closed — 7 fixed | What the run found and how each was fixed. |
-| [day8-fix-verification.md](day8-fix-verification.md) | **scheduled — next** | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
+| [day8-fix-verification.md](day8-fix-verification.md) | **in progress — step 1 done** | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
+| [day8-findings.md](day8-findings.md) | **open — 3 bugs, unfixed** | Fix 5 verified; a BOM breaks configs, the mirror keeps dead notes. |
 | [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — after day 8** | The demo recording. Never run. Still the only planned artifact to show anyone. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
 | [gameplan-v2.md](gameplan-v2.md) | **partly outdated** | Architecture rationale and the day-5a findings: still true. Its "Revised week" schedule is dead — superseded by roadmap.md. |
