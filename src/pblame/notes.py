@@ -48,7 +48,7 @@ def parse(text: str) -> list[Receipt]:
     except json.JSONDecodeError:
         whole = None
     if isinstance(whole, dict) and "receipts" in whole:
-        return _fold(_receipts_from(whole["receipts"]))
+        return fold(_receipts_from(whole["receipts"]))
 
     objects = []
     for line in text.splitlines():
@@ -61,7 +61,7 @@ def parse(text: str) -> list[Receipt]:
             continue  # a conflicted or foreign line must not lose the rest
         if isinstance(obj, dict) and "prompt" in obj:
             objects.append(obj)
-    return _fold(_receipts_from(objects))
+    return fold(_receipts_from(objects))
 
 
 def _receipts_from(objects: list) -> list[Receipt]:
@@ -74,7 +74,7 @@ def _receipts_from(objects: list) -> list[Receipt]:
     return out
 
 
-def _fold(receipts: list[Receipt]) -> list[Receipt]:
+def fold(receipts: list[Receipt]) -> list[Receipt]:
     """Collapse copies of one prompt, unioning ranges per path.
 
     A union-merged note legitimately holds the same prompt twice: attach
@@ -92,6 +92,22 @@ def _fold(receipts: list[Receipt]) -> list[Receipt]:
     return out
 
 
+def all_refs(repo: Path) -> list[str]:
+    """Every pblame notes ref that exists.
+
+    Enumerated rather than listed by name: `uninstall --purge` once deleted
+    only the ref the code knew about first and left the redacted mirror behind,
+    still holding every prompt. A ref added later must not be missable the same
+    way. Other tools' notes refs are left alone.
+    """
+    try:
+        out = git(repo, "for-each-ref", "--format=%(refname)", "refs/notes/")
+    except GitError:
+        return []
+    return [r for r in out.splitlines()
+            if r == NOTES_REF or r.startswith(NOTES_REF + "-")]
+
+
 def read(repo: Path, sha: str, ref: str = NOTES_REF) -> list[Receipt]:
     try:
         return parse(git(repo, "notes", "--ref", ref, "show", sha, strip=False))
@@ -103,7 +119,7 @@ def read_merged(repo: Path, sha: str) -> list[Receipt]:
     """Everything known about a commit: our verbatim record plus whatever
     teammates shared. Local comes first, so where both hold the same prompt
     the unredacted text wins."""
-    return _fold(read(repo, sha, NOTES_REF) + read(repo, sha, SHARED_REF))
+    return fold(read(repo, sha, NOTES_REF) + read(repo, sha, SHARED_REF))
 
 
 def commits_with_notes(repo: Path, ref: str = NOTES_REF) -> list[str]:
@@ -121,6 +137,14 @@ def serialize(receipts: list[Receipt]) -> str:
         for r in receipts
     ]
     return "\n".join(lines) + "\n"
+
+
+def signature(receipts: list[Receipt]) -> tuple:
+    """Order-independent identity of a note's contents, for deciding whether
+    a write would change anything."""
+    return tuple(sorted(
+        json.dumps(r.to_dict(), separators=(",", ":"), sort_keys=True)
+        for r in receipts))
 
 
 def write(repo: Path, sha: str, receipts: list[Receipt], ref: str = NOTES_REF) -> None:
@@ -255,17 +279,38 @@ def attach_staged(repo: Path, sha: str = "HEAD") -> list[Receipt]:
         return attached
 
 
-def remap(repo: Path, old_sha: str, new_sha: str) -> int:
+def remap(repo: Path, old_sha: str, new_sha: str, ref: str = NOTES_REF) -> int:
     """Move a note from a rewritten commit onto its replacement, shifting
     ranges by whatever the rewrite changed. Returns receipts carried over.
 
     Without this, amend/rebase/squash strands every note on a commit no
     longer reachable, silently losing the attribution.
     """
-    receipts = read(repo, old_sha)
+    receipts = read(repo, old_sha, ref)
     if not receipts:
         return 0
     staging.apply_offsets(receipts, hunk_offsets(repo, old_sha, new_sha))
-    merge_into(repo, new_sha, receipts)
-    remove(repo, old_sha)
+    merge_into(repo, new_sha, receipts, ref)
+    remove(repo, old_sha, ref)
     return len(receipts)
+
+
+def remap_all(repo: Path, old_sha: str, new_sha: str) -> int:
+    """Remap every ref that has a note for the rewritten commit.
+
+    `remap` took a ref and the hook never passed one, so an amend moved the
+    local note and left the mirror holding a note on a commit that no longer
+    exists — unreachable entries nobody would ever collect, and a shared
+    record that disagreed with the local one after any rewrite.
+
+    Counts only the local record, so the number reported to the developer is
+    the number of their prompts that moved, not double.
+    """
+    moved = 0
+    for ref in all_refs(repo):
+        if ref == FETCH_REF:
+            continue  # scratch space; the next fetch replaces it wholesale
+        carried = remap(repo, old_sha, new_sha, ref)
+        if ref == NOTES_REF:
+            moved = carried
+    return moved

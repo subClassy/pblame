@@ -8,6 +8,8 @@ from conftest import run_git
 
 from pblame import config, git_hooks, notes, share
 from pblame.adapters import claude_code
+from pblame.models import FileChange
+from test_staging import make_receipt
 from pblame.snapshot import git
 
 
@@ -274,3 +276,172 @@ def test_doctor_only_demands_sharing_hooks_once_sharing_is_on(repo):
     enable_sharing(repo)
     by_label = {c.label: c for c in doctor.run(repo)}
     assert by_label["pre-push hook"].status == doctor.FAIL
+
+
+# --- a push must not redo the whole history ------------------------------
+
+def test_an_unchanged_push_writes_nothing(repo, origin):
+    """Every push used to re-redact and rewrite every note, growing the
+    mirror by one commit per recorded commit: 9s for a no-op at 60 commits."""
+    for n in range(3):
+        record(repo, f"prompt {n}", body="base\n" + "x\n" * (n + 1))
+    share.push(repo, cfg_of(repo))
+    after_first = git(repo, "rev-parse", notes.SHARED_REF)
+
+    share.push(repo, cfg_of(repo))
+
+    assert git(repo, "rev-parse", notes.SHARED_REF) == after_first
+    assert [p.is_new for p in share.plan(repo, cfg_of(repo))] == [False] * 3
+
+
+def test_only_the_new_commit_is_written(repo, origin):
+    record(repo, "first prompt", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+    record(repo, "second prompt", body="base\none\ntwo\n")
+
+    planned = share.plan(repo, cfg_of(repo))
+    fresh = [p for p in planned if p.is_new]
+    assert len(planned) == 2 and len(fresh) == 1
+    assert [r.prompt.text for r in fresh[0].receipts] == ["second prompt"]
+
+
+def test_a_changed_redaction_pattern_is_applied_retroactively(repo, origin):
+    """Skipping unchanged notes must not mean the mirror can never improve."""
+    sha = record(repo, "ticket CUST-123456 came in", body="base\nx\n")
+    share.push(repo, cfg_of(repo))
+    assert "CUST-123456" in notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
+
+    (repo / config.FILENAME).write_text(json.dumps({"redaction": {"custom_patterns": [
+        {"pattern": r"CUST-\d{6,}", "replacement": "[REDACTED_CUSTOMER_ID]"}]}}))
+
+    assert [p.is_new for p in share.plan(repo, cfg_of(repo))] == [True]
+    share.push(repo, cfg_of(repo))
+    assert "CUST-123456" not in notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
+
+
+def test_plan_reads_the_history_in_a_constant_number_of_git_calls(repo, origin, monkeypatch):
+    for n in range(4):
+        record(repo, f"prompt {n}", body="base\n" + "y\n" * (n + 1))
+
+    calls = []
+    real_git, real_bytes = share.index.git, share.index.git_bytes
+    monkeypatch.setattr(share.index, "git",
+                        lambda *a, **k: (calls.append(a[1]), real_git(*a, **k))[1])
+    monkeypatch.setattr(share.index, "git_bytes",
+                        lambda *a, **k: (calls.append(a[1]), real_bytes(*a, **k))[1])
+
+    share.plan(repo, cfg_of(repo))
+    # ls-tree + cat-file per ref, and nothing per commit.
+    assert len(calls) <= 4, calls
+
+
+# --- a rewrite must not leave the mirror stale --------------------------
+
+def test_a_rewrite_remaps_the_mirror_too(repo, origin):
+    """remap took a ref and the hook never passed one, so an amend moved the
+    local note and left the mirror pointing at a commit that no longer
+    exists."""
+    old = record(repo, "the only prompt", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+    assert notes.read(repo, old, notes.SHARED_REF)
+
+    (repo / "app.py").write_text("base\none\ntwo\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "--amend", "--no-edit")
+    new = git(repo, "rev-parse", "HEAD")
+
+    assert notes.remap_all(repo, old, new) == 1
+    for ref in (notes.NOTES_REF, notes.SHARED_REF):
+        assert notes.read(repo, old, ref) == [], f"{ref} still holds the orphan"
+        assert [r.prompt.text for r in notes.read(repo, new, ref)] == ["the only prompt"]
+
+
+def test_the_post_rewrite_hook_remaps_both_refs(repo, origin):
+    """End to end through the real hook, not the function."""
+    from pblame import git_hooks
+
+    git_hooks.install_hooks(repo)
+    old = record(repo, "shared then amended", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+
+    (repo / "app.py").write_text("base\nchanged\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "--amend", "--no-edit")   # fires post-rewrite
+    new = git(repo, "rev-parse", "HEAD")
+
+    assert notes.read(repo, old, notes.SHARED_REF) == []
+    assert [r.prompt.text for r in notes.read(repo, new, notes.SHARED_REF)] == \
+        ["shared then amended"]
+
+
+def test_remap_counts_only_the_developers_own_prompts(repo, origin):
+    """Both refs move, but the message should not double-count."""
+    old = record(repo, "one prompt", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+    (repo / "app.py").write_text("base\ntwo\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "--amend", "--no-edit")
+
+    assert notes.remap_all(repo, old, git(repo, "rev-parse", "HEAD")) == 1
+
+
+def test_a_rejected_push_does_not_clobber_what_the_pull_brought_in(repo, origin):
+    """stage used to merge against the live note; it now writes a list computed
+    in advance. On the reject-pull-retry path that list predates the pull, so a
+    teammate's entry for the same commit could be overwritten."""
+    sha = record(repo, "alice's prompt", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    # A teammate adds a receipt to the *same* commit and pushes first, which is
+    # what makes our push get rejected.
+    theirs = make_receipt(text="teammate's prompt on the same commit")
+    theirs.post_tree = "b" * 40
+    theirs.files = [FileChange(path="app.py", ranges=[(2, 2)])]
+    bare = origin
+    run_git(repo, "fetch", str(bare), f"+{notes.NOTES_REF}:{notes.FETCH_REF}")
+    run_git(repo, "update-ref", "refs/notes/tmp-theirs", notes.FETCH_REF)
+    notes.merge_into(repo, sha, [theirs], "refs/notes/tmp-theirs")
+    run_git(repo, "push", str(bare), f"refs/notes/tmp-theirs:{notes.NOTES_REF}")
+
+    # Now we record more and push: rejected, pulled, retried.
+    record(repo, "alice's second prompt", body="base\nalice\nmore\n")
+    share.push(repo, cfg_of(repo))
+    share.pull(repo, cfg_of(repo))
+
+    shared = {r.prompt.text for r in notes.read(repo, sha, notes.SHARED_REF)}
+    assert "alice's prompt" in shared
+    assert "teammate's prompt on the same commit" in shared, \
+        "the retry overwrote what the pull brought in"
+
+
+def test_retry_keeps_a_teammates_entry_on_a_commit_we_also_changed(repo, origin):
+    """The sharp version of the above: our note for that commit changed too, so
+    stage does not skip it, and the list it writes predates the pull."""
+    sha = record(repo, "alice's first", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    # Teammate adds a receipt to the same commit and pushes first.
+    theirs = make_receipt(text="teammate's prompt")
+    theirs.post_tree = "b" * 40
+    theirs.files = [FileChange(path="app.py", ranges=[(2, 2)])]
+    run_git(repo, "fetch", str(origin), f"+{notes.NOTES_REF}:{notes.FETCH_REF}")
+    run_git(repo, "update-ref", "refs/notes/tmp-theirs", notes.FETCH_REF)
+    notes.merge_into(repo, sha, [theirs], "refs/notes/tmp-theirs")
+    run_git(repo, "push", str(origin), f"refs/notes/tmp-theirs:{notes.NOTES_REF}")
+
+    # And *our* note for that same commit also gains a receipt, so the mirror
+    # is out of date for it and stage will not skip it.
+    mine = make_receipt(text="alice's second on the same commit")
+    mine.post_tree = "b" * 40
+    mine.files = [FileChange(path="app.py", ranges=[(1, 1)])]
+    notes.merge_into(repo, sha, [mine])
+
+    share.push(repo, cfg_of(repo))      # rejected, pulled, retried
+    share.pull(repo, cfg_of(repo))
+
+    shared = {r.prompt.text for r in notes.read(repo, sha, notes.SHARED_REF)}
+    assert "alice's first" in shared
+    assert "alice's second on the same commit" in shared
+    assert "teammate's prompt" in shared, "the retry overwrote the pulled entry"

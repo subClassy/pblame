@@ -195,3 +195,33 @@ def test_cli_reports_an_unreadable_date(repo, history, capsys, monkeypatch):
     monkeypatch.chdir(repo)
     assert main(["search", "--since", "yesterday"]) == 1
     assert "date" in capsys.readouterr().err.lower()
+
+
+# --- findings 1 and 2: shipped without tests, covered now ----------------
+
+@pytest.mark.parametrize("pattern", [
+    "auth.py", "./auth.py", r".\auth.py", "AUTH.PY", "*.py",
+])
+def test_path_filter_accepts_what_a_shell_hands_over(repo, history, pattern):
+    r"""PowerShell tab-completion produces .\auth.py, which matched nothing."""
+    assert "make it safer" in find(repo, path=pattern)
+
+
+def test_path_normalisation_is_explicit():
+    assert index.normalise_path(r".\src\a.py") == "src/a.py"
+    assert index.normalise_path("./src/a.py") == "src/a.py"
+    assert index.normalise_path("src/a.py") == "src/a.py"
+
+
+def test_redirected_output_is_utf8_not_the_locale_codepage(repo, history):
+    """An em dash was leaving as cp1252 0x97 and arriving as mojibake."""
+    import subprocess, sys
+    notes.write(repo, history[-1], [receipt("use a real \u2014 em dash \u2014 here")])
+
+    out = subprocess.run(
+        [sys.executable, "-m", "pblame.cli", "search", "em dash"],
+        cwd=repo, capture_output=True,
+    )
+    assert b"\xe2\x80\x94" in out.stdout, out.stdout[:200]   # UTF-8
+    assert b"\x97" not in out.stdout                          # not cp1252
+    out.stdout.decode("utf-8")                                # and decodes cleanly

@@ -85,11 +85,16 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     if state_dir.exists():
         shutil.rmtree(state_dir)
         ui.out.field("deleted", str(state_dir.relative_to(repo)))
-    try:
-        git(repo, "update-ref", "-d", notes.NOTES_REF)
-        ui.out.field("deleted", f"{notes.NOTES_REF} (every recorded prompt)")
-    except GitError:
-        pass  # no notes were ever written
+
+    # Every pblame ref, not just the one this command was written for: the
+    # redacted mirror used to survive a purge still holding every prompt.
+    for ref in notes.all_refs(repo):
+        try:
+            git(repo, "update-ref", "-d", ref)
+            ui.out.field("deleted", ref)
+        except GitError:
+            ui.err.warn(f"could not delete {ref}")
+    ui.out.note("Every recorded prompt is gone.")
     return 0
 
 
@@ -101,7 +106,7 @@ def cmd_rewrite(args: argparse.Namespace) -> int:
         for line in sys.stdin.read().splitlines():
             parts = line.split()
             if len(parts) >= 2:
-                moved += notes.remap(repo, parts[0], parts[1])
+                moved += notes.remap_all(repo, parts[0], parts[1])
         if moved:
             ui.out.hook(f"carried {moved} prompt{plural(moved)} onto the rewritten commit")
     except Exception as e:
@@ -246,9 +251,15 @@ def cmd_push(args: argparse.Namespace) -> int:
         return 1
 
     total = sum(len(item.receipts) for item in planned)
-    secrets = sum(len(item.detections) for item in planned)
-    summary = (f"Shared {total} prompt{plural(total)} from {len(planned)}"
-               f" commit{plural(len(planned))} to {cfg.share.remote}")
+    fresh = [item for item in planned if item.is_new]
+    new = sum(len(item.receipts) for item in fresh)
+    secrets = sum(len(item.detections) for item in fresh)
+
+    if not new:
+        summary = f"Already shared, {total} prompt{plural(total)} on {cfg.share.remote}"
+    else:
+        summary = (f"Shared {new} new prompt{plural(new)} to {cfg.share.remote}"
+                   f" ({total} total)")
     redacted = f"{secrets} secret{plural(secrets)} redacted" if secrets else ""
     if args.if_enabled:  # running inside git push; stay on one line
         ui.out.hook(summary[0].lower() + summary[1:]

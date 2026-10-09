@@ -154,13 +154,26 @@ Plus `before-search.txt` so I can diff what repair changed.
 
 ## 9 — undo
 
+**Close any editor open on `teammate` first** — VS Code holds a lock on the folder and
+`Remove-Item` fails with *"being used by another process"*.
+
 ```powershell
 cd ..
 Remove-Item -Recurse -Force teammate, clock_remote.git
+
 cd dummy_clock
 git remote remove origin
-Remove-Item .pblame.local.json
-# and if anything went wrong, the backup is beside it:
+pblame share --off                 # or delete .pblame.local.json
+# The sharing refs survive everything above, so remove them explicitly:
+git update-ref -d refs/notes/pblame-shared
+git update-ref -d refs/notes/pblame-remote
+git for-each-ref refs/notes/       # should list only refs/notes/pblame
+
+cd ..
+Remove-Item before-search.txt      # once you have sent it to me
+# Keep dummy_clock.backup until you are happy with the repo, then:
+#   Remove-Item -Recurse -Force dummy_clock.backup
+# To roll the whole run back instead:
 #   Remove-Item -Recurse -Force dummy_clock ; Rename-Item dummy_clock.backup dummy_clock
 ```
 
