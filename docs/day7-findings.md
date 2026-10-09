@@ -76,6 +76,50 @@ file is a lot of noise in the output that is supposed to be the demo.
 `--json` keeps reporting the true owner. Which prompt "owns" whitespace is not information
 anyone needs.
 
+### 5. Every push re-does the whole history — the worst one found
+
+```
+pblame push   ->  Shared 28 prompts from 14 commits
+```
+
+That count is the cumulative total, not what this push added, and the number is honest
+about what the code actually did: it re-read, re-redacted and rewrote **every** note.
+
+Measured on a synthetic 60-commit repo:
+
+| | |
+|---|---|
+| first push | 7.3s |
+| second push, nothing changed | 9.0s |
+| notes commits on the mirror | 60 → 120 (+60 for an unchanged push) |
+| extrapolated at 500 commits | ~75s per push, +500 notes commits each time |
+
+The real run showed it too: 15 notes commits for 5 prompts after three pushes.
+
+**Reason.** Two, both avoidable:
+
+* `share.plan` calls `notes.read` once per commit — a subprocess each. This is the exact
+  pattern already fixed in `index.load`, and the batch reader built for it was not reused.
+* `share.stage` calls `merge_into` for every commit unconditionally, and `merge_into`
+  always writes. `git notes add` creates a commit per note, so the mirror grows by N
+  commits per push even when the content is byte-identical.
+
+**It also invalidates a decision made on the record.** The `pre-push` hook runs in the
+foreground, chosen over blameprompt's backgrounding because "one extra round trip for one
+small ref beats a backgrounded failure nobody sees". That assumed the work was small. On a
+500-commit repo `git push` would block for over a minute, every time.
+
+**Fix.**
+
+1. `plan` uses `index.notes_by_commit` — two subprocesses instead of N.
+2. `stage` compares the redacted receipts against what the shared note already holds and
+   writes only on a difference. Nothing changed means nothing written, while a changed
+   redaction pattern still gets applied retroactively.
+3. Report the delta: *"Shared 2 new prompts (28 total)"*.
+
+With 1 and 2 the no-op push should fall well under a second, which also rescues the
+foreground choice rather than forcing a retreat to backgrounding.
+
 ## Not bugs — recorded so we do not "fix" them later
 
 - **`--path "*.js" --since 3w` returned nothing, correctly.** The newest prompts at that

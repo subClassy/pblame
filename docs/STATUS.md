@@ -8,7 +8,7 @@ Start here. Written 2026-10-08, after search and repair merged.
 |---|---|---|
 | **[roadmap.md](roadmap.md)** | **live** | The plan. Phases, gates, measured limits, known debt. |
 | [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | **in progress — steps 0–6 done** | Validating sharing, search and repair on the real dummy_clock. |
-| [day7-findings.md](day7-findings.md) | **open — 4 bugs, unfixed** | What the run found. Fix after step 9. |
+| [day7-findings.md](day7-findings.md) | **open — 5 bugs, unfixed** | What the run found. Fix after step 9. |
 | [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — after day 7** | The demo recording. Never run. Still the only planned artifact to show anyone. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
 | [gameplan-v2.md](gameplan-v2.md) | **partly outdated** | Architecture rationale and the day-5a findings: still true. Its "Revised week" schedule is dead — superseded by roadmap.md. |
