@@ -1,10 +1,16 @@
-# Day 7 findings — observations from the run, nothing fixed yet
+# Day 7 findings — all seven fixed on `fix/day7-findings`
 
 From the terminal log of [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md),
 steps 0–9, complete.
 
-Nothing in this file has been fixed. Each entry is what happened, why, and what the fix
-would be.
+Each entry is what happened, why, and the fix. All seven are now fixed; the commit for
+each is named at the end of its section.
+
+**A correction belongs at the top.** This file originally said nothing had been fixed. That
+was wrong: findings 1–4 had already been applied when it was written, and a `git add -A`
+inside the docs commit (`e868c3f`) carried them in under a message claiming otherwise. The
+code was right, the reporting was not, and those four shipped without tests — added later
+in `3564c84`.
 
 ## What worked, on real data
 
@@ -43,7 +49,7 @@ which are POSIX (`styles.css`). PowerShell tab-completion produces `.\styles.css
 backslash and a leading `./`. Neither `fnmatch` nor the substring check matches.
 
 **Fix.** Normalise the pattern before matching: backslashes to forward slashes, strip any
-leading `./`. Reproduced.
+leading `./`. Reproduced. — *fixed in `e868c3f`, tested in `3564c84`*
 
 ### 2. Redirected output mangles non-ASCII
 
@@ -58,6 +64,8 @@ dash leaves as cp1252 `0x97`, and PowerShell decodes it as cp437, where `0x97` i
 nobody's console. Keep the console's own encoding when it *is* a tty, so the existing ASCII
 glyph fallback still applies. `--json` is unaffected (`json.dumps` escapes non-ASCII).
 
+*Fixed in `e868c3f`, tested in `3564c84`: the em dash now reaches a pipe as `â`.*
+
 ### 3. The push refusal names the wrong file and the wrong remedy
 
 ```
@@ -69,7 +77,7 @@ glyph fallback still applies. `--json` is unaffected (`json.dumps` escapes non-A
 lives in `.pblame.local.json`, and `.pblame.json` is the committed file that deliberately
 *cannot* enable it — so the message tells you to do the one thing we designed against.
 
-**Fix.** Point at `pblame share`.
+**Fix.** Point at `pblame share`. — *fixed in `e868c3f`*
 
 ### 4. Blank lines get their own prompt header in `blame`
 
@@ -82,7 +90,8 @@ file is a lot of noise in the output that is supposed to be the demo.
 
 **Fix.** A blank line never starts a group; it joins the current one. Rendering only —
 `--json` keeps reporting the true owner. Which prompt "owns" whitespace is not information
-anyone needs.
+anyone needs. — *fixed in `e868c3f`, tested in `3564c84`, including that `--json` still
+reports a blank line's real owner*
 
 ### 5. Every push re-does the whole history — the worst one found
 
@@ -125,8 +134,13 @@ small ref beats a backgrounded failure nobody sees". That assumed the work was s
    redaction pattern still gets applied retroactively.
 3. Report the delta: *"Shared 2 new prompts (28 total)"*.
 
-With 1 and 2 the no-op push should fall well under a second, which also rescues the
-foreground choice rather than forcing a retreat to backgrounding.
+*Fixed in `2fe87e9`.* Measured on the same 60-commit repo: first push 7.3s → **2.7s**, an
+unchanged push 9.0s → **0.2s**, and the mirror stops growing (+60 commits → +0).
+
+A test caught a flaw in the first attempt: `fold` keeps the first copy of a prompt, so
+comparing against `fold(mirror + ours)` let the mirror's stale text win and a changed
+redaction pattern would never have landed. Our own prompts now supersede the mirror's copy
+while a teammate's entries in the same note survive.
 
 ### 6. A rewrite fixes the local record and leaves the mirror stale
 
@@ -145,8 +159,9 @@ Consequences: the mirror accumulates notes for unreachable commits with nothing 
 them, and the shared record disagrees with the local one after any amend or rebase. Not
 visible in `search` today only because `index.load` prefers the local copy.
 
-**Fix.** Remap both refs in `cmd_rewrite`. Deleting the orphaned mirror entry is the part
-that actually needs the ref argument.
+**Fix.** `notes.remap_all` walks the refs that exist, skipping the fetch scratch ref, and
+reports only the local count so the developer is not told their prompts moved twice.
+*Fixed in `6d581c4`*, tested through the real hook as well as the function.
 
 ### 7. `uninstall --purge` says the prompts are gone and leaves a full copy
 
@@ -163,9 +178,9 @@ no *secret* survives, but the prompt text does, in full.
 This is the one finding that is a broken promise rather than a rough edge. `--purge` exists
 for the person who wants the record gone, and it tells them it is gone while it is not.
 
-**Fix.** Purge every pblame ref, not the one the code knew about first. Worth a test that
-enumerates `refs/notes/pblame*` afterwards rather than naming them, so the next ref added
-cannot be forgotten the same way.
+**Fix.** Refs are enumerated from `refs/notes/` and filtered by prefix rather than listed
+by name, so a ref added later cannot be missed the same way — and the test asserts it by
+enumeration too. Another tool's notes are left alone. *Fixed in `72c0a02`.*
 
 ### 8. The cleanup step does not clean up
 
@@ -179,6 +194,10 @@ Three gaps in step 9 of the script, all mine:
 * The sharing refs (`refs/notes/pblame-shared`, and `pblame-remote` in a repo that pulled)
   survive `git remote remove` and deleting the local config. Nothing in the script removes
   them, and per finding 7 `uninstall --purge` would not have either.
+
+*Script fixed:* step 9 now says to close the editor first, removes the sharing refs
+explicitly and verifies with `for-each-ref`, and deals with the leftover backup and
+`before-search.txt`.
 
 ## Not bugs — recorded so we do not "fix" them later
 
@@ -216,11 +235,16 @@ promise** (finding 7) and **one is a scaling fault that undermines a documented 
 decision** (finding 5). Nothing silently lost data, and `hook.log` stayed empty throughout,
 which is the property this project has paid most to earn.
 
-Fix order, worst first:
+All fixed, worst first, on `fix/day7-findings`:
 
-1. **7** — purge leaves a full copy of every prompt. A trust bug.
-2. **5** — every push redoes the whole history; ~75s per push at 500 commits.
-3. **6** — a rewrite leaves the mirror stale and unreachable notes uncollected.
-4. **3** — the push refusal names a file that deliberately cannot do what it asks.
-5. **1, 2** — `--path` with a shell-completed path; redirected output mangles non-ASCII.
-6. **4, 8** — blank-line groups in `blame`; the cleanup step.
+| | | |
+|---|---|---|
+| 7 | purge left a full copy of every prompt | `72c0a02` |
+| 5 | every push redid the whole history | `2fe87e9` |
+| 6 | a rewrite left the mirror stale | `6d581c4` |
+| 3 | the push refusal named the wrong file | `e868c3f` |
+| 1, 2 | shell-completed `--path`; redirected output encoding | `e868c3f` + `3564c84` |
+| 4 | blank-line groups in `blame` | `e868c3f` + `3564c84` |
+| 8 | the cleanup step | script |
+
+198 tests.
