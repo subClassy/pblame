@@ -279,17 +279,38 @@ def attach_staged(repo: Path, sha: str = "HEAD") -> list[Receipt]:
         return attached
 
 
-def remap(repo: Path, old_sha: str, new_sha: str) -> int:
+def remap(repo: Path, old_sha: str, new_sha: str, ref: str = NOTES_REF) -> int:
     """Move a note from a rewritten commit onto its replacement, shifting
     ranges by whatever the rewrite changed. Returns receipts carried over.
 
     Without this, amend/rebase/squash strands every note on a commit no
     longer reachable, silently losing the attribution.
     """
-    receipts = read(repo, old_sha)
+    receipts = read(repo, old_sha, ref)
     if not receipts:
         return 0
     staging.apply_offsets(receipts, hunk_offsets(repo, old_sha, new_sha))
-    merge_into(repo, new_sha, receipts)
-    remove(repo, old_sha)
+    merge_into(repo, new_sha, receipts, ref)
+    remove(repo, old_sha, ref)
     return len(receipts)
+
+
+def remap_all(repo: Path, old_sha: str, new_sha: str) -> int:
+    """Remap every ref that has a note for the rewritten commit.
+
+    `remap` took a ref and the hook never passed one, so an amend moved the
+    local note and left the mirror holding a note on a commit that no longer
+    exists — unreachable entries nobody would ever collect, and a shared
+    record that disagreed with the local one after any rewrite.
+
+    Counts only the local record, so the number reported to the developer is
+    the number of their prompts that moved, not double.
+    """
+    moved = 0
+    for ref in all_refs(repo):
+        if ref == FETCH_REF:
+            continue  # scratch space; the next fetch replaces it wholesale
+        carried = remap(repo, old_sha, new_sha, ref)
+        if ref == NOTES_REF:
+            moved = carried
+    return moved

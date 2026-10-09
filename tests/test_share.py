@@ -331,3 +331,53 @@ def test_plan_reads_the_history_in_a_constant_number_of_git_calls(repo, origin, 
     share.plan(repo, cfg_of(repo))
     # ls-tree + cat-file per ref, and nothing per commit.
     assert len(calls) <= 4, calls
+
+
+# --- a rewrite must not leave the mirror stale --------------------------
+
+def test_a_rewrite_remaps_the_mirror_too(repo, origin):
+    """remap took a ref and the hook never passed one, so an amend moved the
+    local note and left the mirror pointing at a commit that no longer
+    exists."""
+    old = record(repo, "the only prompt", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+    assert notes.read(repo, old, notes.SHARED_REF)
+
+    (repo / "app.py").write_text("base\none\ntwo\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "--amend", "--no-edit")
+    new = git(repo, "rev-parse", "HEAD")
+
+    assert notes.remap_all(repo, old, new) == 1
+    for ref in (notes.NOTES_REF, notes.SHARED_REF):
+        assert notes.read(repo, old, ref) == [], f"{ref} still holds the orphan"
+        assert [r.prompt.text for r in notes.read(repo, new, ref)] == ["the only prompt"]
+
+
+def test_the_post_rewrite_hook_remaps_both_refs(repo, origin):
+    """End to end through the real hook, not the function."""
+    from pblame import git_hooks
+
+    git_hooks.install_hooks(repo)
+    old = record(repo, "shared then amended", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+
+    (repo / "app.py").write_text("base\nchanged\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "--amend", "--no-edit")   # fires post-rewrite
+    new = git(repo, "rev-parse", "HEAD")
+
+    assert notes.read(repo, old, notes.SHARED_REF) == []
+    assert [r.prompt.text for r in notes.read(repo, new, notes.SHARED_REF)] == \
+        ["shared then amended"]
+
+
+def test_remap_counts_only_the_developers_own_prompts(repo, origin):
+    """Both refs move, but the message should not double-count."""
+    old = record(repo, "one prompt", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+    (repo / "app.py").write_text("base\ntwo\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "--amend", "--no-edit")
+
+    assert notes.remap_all(repo, old, git(repo, "rev-parse", "HEAD")) == 1

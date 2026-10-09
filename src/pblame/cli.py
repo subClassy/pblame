@@ -106,7 +106,7 @@ def cmd_rewrite(args: argparse.Namespace) -> int:
         for line in sys.stdin.read().splitlines():
             parts = line.split()
             if len(parts) >= 2:
-                moved += notes.remap(repo, parts[0], parts[1])
+                moved += notes.remap_all(repo, parts[0], parts[1])
         if moved:
             ui.out.hook(f"carried {moved} prompt{plural(moved)} onto the rewritten commit")
     except Exception as e:
