@@ -108,3 +108,32 @@ def test_json_output_shape(repo):
     assert payload["file"] == "a.py"
     assert payload["lines"][0]["commit"] == sha
     assert payload["lines"][0]["prompt"]["text"] == "do the thing"
+
+
+def test_a_blank_line_does_not_get_its_own_prompt_header(repo):
+    """Four single blank lines in one real file became four prompt headers."""
+    (repo / "a.py").write_text("one\n\ntwo\n")
+    attach(repo, ("wrote line one", "a.py", [(1, 1)]),
+                 ("wrote the blank", "a.py", [(2, 2)]),
+                 ("wrote line two", "a.py", [(3, 3)]))
+
+    text = blame.render(blame.attribute(repo, "a.py"), "a.py", color=False)
+    assert "wrote the blank" not in text      # no header for whitespace
+    assert "wrote line one" in text and "wrote line two" in text
+
+
+def test_json_still_reports_the_blank_lines_real_owner(repo):
+    """Grouping is a rendering choice; the data must stay truthful."""
+    (repo / "a.py").write_text("one\n\n")
+    attach(repo, ("owns both lines", "a.py", [(1, 2)]))
+
+    payload = blame.to_json(blame.attribute(repo, "a.py"), "a.py")
+    assert payload["lines"][1]["text"] == ""
+    assert payload["lines"][1]["prompt"]["text"] == "owns both lines"
+
+
+def test_a_leading_blank_line_still_starts_a_group(repo):
+    (repo / "a.py").write_text("\ncode\n")
+    attach(repo, ("wrote it", "a.py", [(1, 2)]))
+    text = blame.render(blame.attribute(repo, "a.py"), "a.py", color=False)
+    assert "wrote it" in text
