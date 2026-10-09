@@ -9,7 +9,8 @@ Start here. Written 2026-10-08, after search and repair merged.
 | **[roadmap.md](roadmap.md)** | **live** | The plan. Phases, gates, measured limits, known debt. |
 | [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | done (8 Oct) | Validating sharing, search and repair on the real dummy_clock. |
 | [day7-findings.md](day7-findings.md) | closed — 7 fixed | What the run found and how each was fixed. |
-| [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — after day 7** | The demo recording. Never run. Still the only planned artifact to show anyone. |
+| [day8-fix-verification.md](day8-fix-verification.md) | **scheduled — next** | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
+| [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — after day 8** | The demo recording. Never run. Still the only planned artifact to show anyone. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
 | [gameplan-v2.md](gameplan-v2.md) | **partly outdated** | Architecture rationale and the day-5a findings: still true. Its "Revised week" schedule is dead — superseded by roadmap.md. |
 | [handover-prompt-attribution-mvp.md](handover-prompt-attribution-mvp.md) | historical | Product thesis, pricing, and the ruled-out dead ends, which all still stand. Its week-1 plan does not. |
@@ -25,17 +26,19 @@ Start here. Written 2026-10-08, after search and repair merged.
 | Sharing (Phase 1) | `share`, `push`, `pull`, `redact` — redacted mirror, opt-in per developer |
 | Search (Phase 3) | `search` by text, path, date, model, author |
 | Maintenance | `repair` — re-cleans prompts recorded by an older version |
+| Removal | `uninstall --purge` — every pblame ref, enumerated not named |
 
-178 tests. Validated across two hostile runs on a real repo.
+200 tests. Validated across three hostile runs on a real repo.
 
 ## Agreed sequence from here
 
 1. ✔ `pblame repair` — built and merged
 2. ✔ merge `feat/search` into main
 3. ✔ day 7 validation — found 7 bugs, see [day7-findings.md](day7-findings.md)
-4. ✔ fixed all 7 on `fix/day7-findings`
-5. **→ record [the envdiff demo](day6-b-envdiff-demo.md)** (yours)
-6. then Phase 2 — the GitHub PR surface
+4. ✔ fixed all 7, merged (`7065826`) — plus a regression the fixing caused
+5. **→ run [day 8](day8-fix-verification.md)** to verify them (yours)
+6. **→ record [the envdiff demo](day6-b-envdiff-demo.md)** (yours)
+7. then Phase 2 — the GitHub PR surface
 
 Dropped by decision: chasing the external tester's feedback.
 
