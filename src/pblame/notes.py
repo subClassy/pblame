@@ -92,6 +92,22 @@ def _fold(receipts: list[Receipt]) -> list[Receipt]:
     return out
 
 
+def all_refs(repo: Path) -> list[str]:
+    """Every pblame notes ref that exists.
+
+    Enumerated rather than listed by name: `uninstall --purge` once deleted
+    only the ref the code knew about first and left the redacted mirror behind,
+    still holding every prompt. A ref added later must not be missable the same
+    way. Other tools' notes refs are left alone.
+    """
+    try:
+        out = git(repo, "for-each-ref", "--format=%(refname)", "refs/notes/")
+    except GitError:
+        return []
+    return [r for r in out.splitlines()
+            if r == NOTES_REF or r.startswith(NOTES_REF + "-")]
+
+
 def read(repo: Path, sha: str, ref: str = NOTES_REF) -> list[Receipt]:
     try:
         return parse(git(repo, "notes", "--ref", ref, "show", sha, strip=False))

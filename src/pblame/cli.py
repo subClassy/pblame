@@ -85,11 +85,16 @@ def cmd_uninstall(args: argparse.Namespace) -> int:
     if state_dir.exists():
         shutil.rmtree(state_dir)
         ui.out.field("deleted", str(state_dir.relative_to(repo)))
-    try:
-        git(repo, "update-ref", "-d", notes.NOTES_REF)
-        ui.out.field("deleted", f"{notes.NOTES_REF} (every recorded prompt)")
-    except GitError:
-        pass  # no notes were ever written
+
+    # Every pblame ref, not just the one this command was written for: the
+    # redacted mirror used to survive a purge still holding every prompt.
+    for ref in notes.all_refs(repo):
+        try:
+            git(repo, "update-ref", "-d", ref)
+            ui.out.field("deleted", ref)
+        except GitError:
+            ui.err.warn(f"could not delete {ref}")
+    ui.out.note("Every recorded prompt is gone.")
     return 0
 
 
