@@ -21,11 +21,10 @@ import dataclasses
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import notes, redact
-from .snapshot import GitError, git
-from .ui import plural
+from . import index, notes, redact
 from .config import Config
 from .snapshot import GitError, git
+from .ui import plural
 
 
 class ShareDisabled(RuntimeError):
@@ -38,6 +37,8 @@ class Planned:
     sha: str
     receipts: list  # redacted
     detections: list = field(default_factory=list)
+    desired: list = field(default_factory=list)  # the whole note to write
+    is_new: bool = True  # False when the mirror already holds exactly this
 
 
 def redact_receipt(receipt, cfg) -> tuple[object, list]:
@@ -55,24 +56,47 @@ def redact_receipt(receipt, cfg) -> tuple[object, list]:
 
 
 def plan(repo: Path, cfg: Config) -> list[Planned]:
-    """What `push` would send, commit by commit."""
+    """What `push` would send, commit by commit.
+
+    Reads both refs in a handful of git calls rather than one per commit:
+    doing it per commit cost 9s for a push that changed nothing on a
+    60-commit repo, and would be over a minute at 500.
+    """
+    mirror = index.notes_by_commit(repo, notes.SHARED_REF)
     planned = []
-    for sha in notes.commits_with_notes(repo, notes.NOTES_REF):
+    for sha, local in index.notes_by_commit(repo, notes.NOTES_REF).items():
         receipts, detections = [], []
-        for r in notes.read(repo, sha, notes.NOTES_REF):
+        for r in local:
             clean, found = redact_receipt(r, cfg.redaction)
             receipts.append(clean)
             detections += found
-        if receipts:
-            planned.append(Planned(sha, receipts, detections))
+        if not receipts:
+            continue
+
+        # Our redaction supersedes whatever the mirror holds for the same
+        # prompt — we authored it, and the pattern set may have changed since.
+        # Anything else in that note is a teammate's and must survive.
+        existing = mirror.get(sha, [])
+        ours = {r.prompt.id for r in receipts}
+        desired = notes.fold([r for r in existing if r.prompt.id not in ours] + receipts)
+
+        planned.append(Planned(
+            sha, receipts, detections, desired=desired,
+            is_new=notes.signature(desired) != notes.signature(existing)))
     return planned
 
 
 def stage(repo: Path, planned: list[Planned]) -> None:
-    """Write the redacted receipts into the mirror ref, merging rather than
-    overwriting so a teammate's note for the same commit survives."""
+    """Write the redacted receipts into the mirror, merging rather than
+    overwriting so a teammate's note for the same commit survives.
+
+    Only notes that would actually change are written. `git notes add` makes a
+    commit per note, so writing unconditionally grew the mirror by one commit
+    per recorded commit on every push.
+    """
     for item in planned:
-        notes.merge_into(repo, item.sha, item.receipts, notes.SHARED_REF)
+        if item.is_new:
+            notes.write(repo, item.sha, item.desired, notes.SHARED_REF)
 
 
 def _ref_exists(repo: Path, ref: str) -> bool:

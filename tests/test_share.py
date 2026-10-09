@@ -274,3 +274,60 @@ def test_doctor_only_demands_sharing_hooks_once_sharing_is_on(repo):
     enable_sharing(repo)
     by_label = {c.label: c for c in doctor.run(repo)}
     assert by_label["pre-push hook"].status == doctor.FAIL
+
+
+# --- a push must not redo the whole history ------------------------------
+
+def test_an_unchanged_push_writes_nothing(repo, origin):
+    """Every push used to re-redact and rewrite every note, growing the
+    mirror by one commit per recorded commit: 9s for a no-op at 60 commits."""
+    for n in range(3):
+        record(repo, f"prompt {n}", body="base\n" + "x\n" * (n + 1))
+    share.push(repo, cfg_of(repo))
+    after_first = git(repo, "rev-parse", notes.SHARED_REF)
+
+    share.push(repo, cfg_of(repo))
+
+    assert git(repo, "rev-parse", notes.SHARED_REF) == after_first
+    assert [p.is_new for p in share.plan(repo, cfg_of(repo))] == [False] * 3
+
+
+def test_only_the_new_commit_is_written(repo, origin):
+    record(repo, "first prompt", body="base\none\n")
+    share.push(repo, cfg_of(repo))
+    record(repo, "second prompt", body="base\none\ntwo\n")
+
+    planned = share.plan(repo, cfg_of(repo))
+    fresh = [p for p in planned if p.is_new]
+    assert len(planned) == 2 and len(fresh) == 1
+    assert [r.prompt.text for r in fresh[0].receipts] == ["second prompt"]
+
+
+def test_a_changed_redaction_pattern_is_applied_retroactively(repo, origin):
+    """Skipping unchanged notes must not mean the mirror can never improve."""
+    sha = record(repo, "ticket CUST-123456 came in", body="base\nx\n")
+    share.push(repo, cfg_of(repo))
+    assert "CUST-123456" in notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
+
+    (repo / config.FILENAME).write_text(json.dumps({"redaction": {"custom_patterns": [
+        {"pattern": r"CUST-\d{6,}", "replacement": "[REDACTED_CUSTOMER_ID]"}]}}))
+
+    assert [p.is_new for p in share.plan(repo, cfg_of(repo))] == [True]
+    share.push(repo, cfg_of(repo))
+    assert "CUST-123456" not in notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
+
+
+def test_plan_reads_the_history_in_a_constant_number_of_git_calls(repo, origin, monkeypatch):
+    for n in range(4):
+        record(repo, f"prompt {n}", body="base\n" + "y\n" * (n + 1))
+
+    calls = []
+    real_git, real_bytes = share.index.git, share.index.git_bytes
+    monkeypatch.setattr(share.index, "git",
+                        lambda *a, **k: (calls.append(a[1]), real_git(*a, **k))[1])
+    monkeypatch.setattr(share.index, "git_bytes",
+                        lambda *a, **k: (calls.append(a[1]), real_bytes(*a, **k))[1])
+
+    share.plan(repo, cfg_of(repo))
+    # ls-tree + cat-file per ref, and nothing per commit.
+    assert len(calls) <= 4, calls

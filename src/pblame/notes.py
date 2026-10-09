@@ -48,7 +48,7 @@ def parse(text: str) -> list[Receipt]:
     except json.JSONDecodeError:
         whole = None
     if isinstance(whole, dict) and "receipts" in whole:
-        return _fold(_receipts_from(whole["receipts"]))
+        return fold(_receipts_from(whole["receipts"]))
 
     objects = []
     for line in text.splitlines():
@@ -61,7 +61,7 @@ def parse(text: str) -> list[Receipt]:
             continue  # a conflicted or foreign line must not lose the rest
         if isinstance(obj, dict) and "prompt" in obj:
             objects.append(obj)
-    return _fold(_receipts_from(objects))
+    return fold(_receipts_from(objects))
 
 
 def _receipts_from(objects: list) -> list[Receipt]:
@@ -74,7 +74,7 @@ def _receipts_from(objects: list) -> list[Receipt]:
     return out
 
 
-def _fold(receipts: list[Receipt]) -> list[Receipt]:
+def fold(receipts: list[Receipt]) -> list[Receipt]:
     """Collapse copies of one prompt, unioning ranges per path.
 
     A union-merged note legitimately holds the same prompt twice: attach
@@ -119,7 +119,7 @@ def read_merged(repo: Path, sha: str) -> list[Receipt]:
     """Everything known about a commit: our verbatim record plus whatever
     teammates shared. Local comes first, so where both hold the same prompt
     the unredacted text wins."""
-    return _fold(read(repo, sha, NOTES_REF) + read(repo, sha, SHARED_REF))
+    return fold(read(repo, sha, NOTES_REF) + read(repo, sha, SHARED_REF))
 
 
 def commits_with_notes(repo: Path, ref: str = NOTES_REF) -> list[str]:
@@ -137,6 +137,14 @@ def serialize(receipts: list[Receipt]) -> str:
         for r in receipts
     ]
     return "\n".join(lines) + "\n"
+
+
+def signature(receipts: list[Receipt]) -> tuple:
+    """Order-independent identity of a note's contents, for deciding whether
+    a write would change anything."""
+    return tuple(sorted(
+        json.dumps(r.to_dict(), separators=(",", ":"), sort_keys=True)
+        for r in receipts))
 
 
 def write(repo: Path, sha: str, receipts: list[Receipt], ref: str = NOTES_REF) -> None:

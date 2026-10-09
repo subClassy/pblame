@@ -251,9 +251,15 @@ def cmd_push(args: argparse.Namespace) -> int:
         return 1
 
     total = sum(len(item.receipts) for item in planned)
-    secrets = sum(len(item.detections) for item in planned)
-    summary = (f"Shared {total} prompt{plural(total)} from {len(planned)}"
-               f" commit{plural(len(planned))} to {cfg.share.remote}")
+    fresh = [item for item in planned if item.is_new]
+    new = sum(len(item.receipts) for item in fresh)
+    secrets = sum(len(item.detections) for item in fresh)
+
+    if not new:
+        summary = f"Already shared, {total} prompt{plural(total)} on {cfg.share.remote}"
+    else:
+        summary = (f"Shared {new} new prompt{plural(new)} to {cfg.share.remote}"
+                   f" ({total} total)")
     redacted = f"{secrets} secret{plural(secrets)} redacted" if secrets else ""
     if args.if_enabled:  # running inside git push; stay on one line
         ui.out.hook(summary[0].lower() + summary[1:]
