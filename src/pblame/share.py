@@ -113,8 +113,8 @@ def push(repo: Path, cfg: Config) -> list[Planned]:
     """Redact, stage into the mirror, and push it to the remote's notes ref."""
     if not cfg.share.enabled:
         raise ShareDisabled(
-            "sharing is off for this repo. Run `pblame push --dry-run` to see exactly "
-            'what would be sent, then set {"share": {"enabled": true}} in .pblame.json'
+            "Sharing is off for this repo. `pblame push --dry-run` shows exactly what "
+            "would be sent, and `pblame share` turns it on."
         )
     planned = plan(repo, cfg)
     if not planned:

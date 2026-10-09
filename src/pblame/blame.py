@@ -90,11 +90,18 @@ def attribute(repo: Path, rel_path: str) -> list[Line]:
 
 
 def _groups(lines: list[Line]) -> list[tuple[Receipt | None, list[Line]]]:
-    """Consecutive lines sharing an owner, so each prompt is stated once."""
+    """Consecutive lines sharing an owner, so each prompt is stated once.
+
+    A blank line never starts a group. Which prompt "owns" a blank line is
+    not information anyone needs, and letting one interrupt its neighbours
+    turned four single blank lines in one file into four prompt headers. The
+    true owner is still reported by --json.
+    """
     groups: list[tuple[Receipt | None, list[Line]]] = []
     for line in lines:
         key = line.receipt.prompt.id if line.receipt else None
-        if groups and (groups[-1][0].prompt.id if groups[-1][0] else None) == key:
+        current = (groups[-1][0].prompt.id if groups[-1][0] else None) if groups else object()
+        if groups and (current == key or not line.text.strip()):
             groups[-1][1].append(line)
         else:
             groups.append((line.receipt, [line]))

@@ -126,6 +126,13 @@ This is the case blameprompt's force refspec destroys. Nothing should disappear.
 
 ## 7 — rewriting history with sharing on
 
+**In `dummy_clock`**, not the teammate clone — it is the repo with real history,
+so `post-rewrite` has notes worth carrying.
+
+dummy_clock has already pushed, so the amend makes the branch diverge from the
+remote. **Do not `git push` the branch afterwards** — `pblame push` alone is the
+step, and it only moves the notes mirror.
+
 ```powershell
 git commit --amend -m "clock: amended with sharing on"
 pblame show HEAD                   # receipts carried over

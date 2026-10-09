@@ -157,7 +157,17 @@ class Query:
     mine: bool = False  # exclude prompts that only came from the mirror
 
 
+def normalise_path(pattern: str) -> str:
+    """Accept what a shell hands over. PowerShell tab-completion produces
+    `.\styles.css`, which matched nothing until this existed."""
+    cleaned = pattern.replace("\\", "/")
+    while cleaned.startswith("./"):
+        cleaned = cleaned[2:]
+    return cleaned
+
+
 def _matches_path(entry: Entry, pattern: str) -> bool:
+    pattern = normalise_path(pattern)
     for path in entry.paths:
         if fnmatch.fnmatch(path, pattern) or pattern.lower() in path.lower():
             return True

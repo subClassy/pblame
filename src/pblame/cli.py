@@ -380,10 +380,18 @@ def cmd_show(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     # Blamed source lines can hold characters the console cannot encode (a
     # cp1252 Windows console cannot print an emoji). Degrade, never crash.
+    #
+    # Redirected output is a different problem: there the locale codepage is
+    # nobody's intent. An em dash was leaving as cp1252 0x97 and arriving as
+    # mojibake, so a pipe or a file gets UTF-8 — a console keeps whatever it
+    # can actually display.
     for stream in (sys.stdout, sys.stderr):
         try:
-            stream.reconfigure(errors="replace")
-        except (AttributeError, OSError):
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, OSError, ValueError):
             pass
 
     parser = argparse.ArgumentParser(prog="pblame")
