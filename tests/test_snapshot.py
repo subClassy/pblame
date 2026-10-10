@@ -2,7 +2,7 @@ from pathlib import Path
 
 from conftest import run_git
 
-from pblame.snapshot import diff_hunks, git, snapshot_tree
+from pblame.snapshot import diff_hunks, git, snapshot_tree, unreachable
 
 
 def test_new_and_modified_files(repo):
@@ -88,3 +88,30 @@ def test_a_corrupt_index_copy_falls_back_instead_of_failing(repo, monkeypatch):
     monkeypatch.setattr(_shutil, "copyfile", torn)
 
     assert len(snapshot_tree(repo)) == 40  # still produced a tree
+
+
+# --- day 8: telling an abandoned commit from one we never fetched ---------
+
+def test_unreachable_finds_an_abandoned_commit(repo):
+    (repo / "a.py").write_text("one\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "first")
+    old = git(repo, "rev-parse", "HEAD")
+    run_git(repo, "commit", "-q", "--amend", "-m", "amended")
+    new = git(repo, "rev-parse", "HEAD")
+
+    assert unreachable(repo, [old, new]) == {old}
+
+
+def test_unreachable_ignores_a_commit_we_never_fetched(repo):
+    """A note a teammate shared points at a commit we may not have, and not
+    having it says nothing about whether it is alive."""
+    (repo / "a.py").write_text("one\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "first")
+
+    assert unreachable(repo, ["0" * 40]) == set()
+
+
+def test_unreachable_with_nothing_to_check(repo):
+    assert unreachable(repo, []) == set()

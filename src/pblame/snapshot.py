@@ -60,6 +60,28 @@ def repo_root(path: Path) -> Path:
     return Path(git(path, "rev-parse", "--show-toplevel"))
 
 
+def unreachable(repo: Path, shas: list[str]) -> set[str]:
+    """Which of these commits are here but reachable from no ref — the ones
+    git would drop at the next gc.
+
+    A commit whose object we do not have is deliberately *not* in the answer.
+    Never having fetched it is the normal state for a note a teammate shared,
+    so "we cannot see it" proves nothing about whether it is alive.
+    """
+    if not shas:
+        return set()
+    listed = git(repo, "cat-file", "--batch-check=%(objectname) %(objecttype)",
+                 input_text="\n".join(shas) + "\n", strip=False)
+    present = [p[0] for p in (l.split() for l in listed.splitlines())
+               if len(p) == 2 and p[1] == "commit"]
+    if not present:
+        return set()
+    # Everything reachable from these and from no ref. A sha that survives is
+    # one nothing points at any more.
+    walked = git(repo, "rev-list", *present, "--not", "--all")
+    return set(walked.split()) & set(present)
+
+
 def snapshot_tree(repo: Path) -> str:
     """Snapshot the working tree as it stands; returns the tree SHA.
 

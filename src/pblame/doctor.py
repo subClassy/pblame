@@ -17,7 +17,7 @@ from pathlib import Path
 from . import config, git_hooks, notes, staging, ui
 from .ui import plural
 from .adapters import claude_code
-from .snapshot import GitError, git, snapshot_tree
+from .snapshot import GitError, git, snapshot_tree, unreachable
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
 
@@ -187,6 +187,31 @@ def _check_history(repo: Path) -> list[Check]:
     return out
 
 
+def _check_mirror(repo: Path) -> list[Check]:
+    """Mirror entries pointing at commits nothing references any more.
+
+    A rewrite used to leave one behind on every push, and because the mirror
+    travels, every clone inherits them and the repos then disagree on how many
+    prompts exist. Reported rather than removed: a note is not recoverable
+    once deleted, and this is the number that says whether removing them is
+    worth the risk yet.
+    """
+    shas = notes.commits_with_notes(repo, notes.SHARED_REF)
+    if not shas:
+        return []
+    try:
+        dead = unreachable(repo, shas)
+    except GitError:
+        return []
+    if not dead:
+        return [Check(PASS, "shared mirror",
+                      f"{len(shas)} commit{plural(len(shas))}, all still in history")]
+    shown = ", ".join(sorted(s[:7] for s in dead)[:3])
+    return [Check(WARN, "shared mirror",
+                  f"{len(dead)} of {len(shas)} notes point at commits a rewrite"
+                  f" left behind ({shown})")]
+
+
 def _check_secrets(repo: Path) -> list[Check]:
     """Report secrets sitting in recorded prompts.
 
@@ -243,7 +268,8 @@ def run(repo: Path) -> list[Check]:
     checks = _check_agent_hooks(repo) + _check_git_hooks(repo)
     checks.append(_check_recording_works(repo))
     checks.append(_check_hook_log(repo))
-    checks += _check_staging(repo) + _check_history(repo) + _check_secrets(repo)
+    checks += (_check_staging(repo) + _check_history(repo)
+               + _check_mirror(repo) + _check_secrets(repo))
     return checks
 
 
