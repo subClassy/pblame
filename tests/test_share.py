@@ -502,6 +502,18 @@ def test_an_unchanged_push_reports_nothing_changed(repo, origin):
     assert [p.changed for p in share.push(repo, cfg_of(repo))] == [[]]
 
 
+def test_push_with_nothing_recorded_says_so(repo, origin, capsys, monkeypatch):
+    """It reported "Already shared, 0 prompts on origin"."""
+    from pblame.cli import main
+    monkeypatch.chdir(repo)
+    assert main(["push"]) == 0
+    assert "Nothing recorded" in capsys.readouterr().out
+
+    # Inside `git push`, a no-op stays quiet.
+    assert main(["push", "--if-enabled"]) == 0
+    assert capsys.readouterr().out == ""
+
+
 def test_the_total_on_the_remote_includes_a_teammates_prompts(tmp_path, repo, origin):
     """"N on origin" counted only our own receipts, so the second developer's
     push reported 1 prompt on a remote holding 3."""

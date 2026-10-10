@@ -250,6 +250,12 @@ def cmd_push(args: argparse.Namespace) -> int:
         ui.err.bad(f"Push failed: {e}")
         return 1
 
+    if not planned:
+        # It used to report "Already shared, 0 prompts on origin".
+        if not args.if_enabled:  # a hook should not announce a no-op
+            ui.out.ok("Nothing recorded yet, so nothing to share")
+        return 0
+
     total = share.shared_total(repo)
     # `changed`, not every receipt in a changed note: one edited redaction
     # rule touching two prompts was reported as four.
