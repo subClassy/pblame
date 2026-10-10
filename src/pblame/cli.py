@@ -143,11 +143,18 @@ def cmd_blame(args: argparse.Namespace) -> int:
         ui.err.bad(f"Cannot blame {rel} ({e})")
         return 1
 
+    try:
+        lines = blame.select(lines, args.lines)
+    except ValueError as e:
+        ui.err.bad(str(e))
+        return 1
+    shown = f"{rel}:{args.lines}" if args.lines else rel
+
     if args.json:
         print(json.dumps(blame.to_json(lines, rel), indent=2))
     else:
         color = sys.stdout.isatty() and not args.no_color and "NO_COLOR" not in os.environ
-        print(blame.render(lines, rel, color=color, glyphs=blame.glyphs_for(sys.stdout)))
+        print(blame.render(lines, shown, color=color, glyphs=blame.glyphs_for(sys.stdout)))
     return 0
 
 
@@ -444,6 +451,8 @@ def main(argv: list[str] | None = None) -> int:
 
     bl = sub.add_parser("blame", help="show a file annotated with the prompt behind each line")
     bl.add_argument("file")
+    bl.add_argument("-L", "--lines", metavar="N,M",
+                    help="only these lines, as git blame spells it: 5,8 or 5")
     bl.add_argument("--json", action="store_true", help="machine-readable output")
     bl.add_argument("--no-color", action="store_true")
     bl.set_defaults(func=cmd_blame)

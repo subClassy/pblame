@@ -108,6 +108,26 @@ def _groups(lines: list[Line]) -> list[tuple[Receipt | None, list[Line]]]:
     return groups
 
 
+def select(lines: list[Line], spec: str | None) -> list[Line]:
+    """The slice of the file to report, in `git blame -L`'s spelling: `N,M`,
+    or `N` for a single line.
+
+    Line numbers stay the working file's own, so a slice reads the same as the
+    whole file does — and the header count then describes the slice.
+    """
+    if not spec:
+        return lines
+    start, _, end = spec.partition(",")
+    try:
+        lo = int(start)
+        hi = int(end) if end.strip() else lo
+    except ValueError:
+        raise ValueError(f"not a line range: {spec!r} - expected N or N,M") from None
+    if lo < 1 or hi < lo:
+        raise ValueError(f"not a line range: {spec!r} - expected N or N,M")
+    return [line for line in lines if lo <= line.number <= hi]
+
+
 def render(lines: list[Line], rel_path: str, color: bool = True,
            glyphs: dict[str, str] | None = None) -> str:
     g = glyphs or UNICODE_GLYPHS
@@ -121,7 +141,9 @@ def render(lines: list[Line], rel_path: str, color: bool = True,
             colors[line.receipt.prompt.id] = PALETTE[len(colors) % len(PALETTE)]
 
     attributed = sum(1 for line in lines if line.receipt)
-    width = len(str(len(lines))) if lines else 1
+    # From the largest line number, not the count: a slice of lines 95-100 is
+    # six lines but still needs three columns.
+    width = max((len(str(line.number)) for line in lines), default=1)
     out = [
         paint(rel_path, BOLD)
         + paint(
@@ -143,7 +165,7 @@ def render(lines: list[Line], rel_path: str, color: bool = True,
 
         bar = colors[receipt.prompt.id] if receipt else DIM
         for line in group:
-            gutter = paint(g["bar"], bar) + paint(f"{line.number:>{width}} {g['rule']} ", DIM)
+            gutter = paint(g["bar"], bar) + paint(f" {line.number:>{width}} {g['rule']} ", DIM)
             out.append("  " + gutter + line.text)
         out.append("")
 
