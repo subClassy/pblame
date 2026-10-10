@@ -6,3 +6,6 @@ build/
 
 # distribution archives
 *.7z
+
+# demo renders: regenerate with tools/demo.tape, do not commit
+demo/

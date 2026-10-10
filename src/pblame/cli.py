@@ -126,6 +126,27 @@ def cmd_attach(args: argparse.Namespace) -> int:
     return 0
 
 
+def _use_color(args: argparse.Namespace) -> bool:
+    """git's `--color=always` semantics, spelled `--color`.
+
+    Forcing matters whenever stdout is not a terminal but something that can
+    still render colour: `| less -R`, or capturing the output for a document.
+    An explicit flag beats NO_COLOR, because the user just asked.
+    """
+    if getattr(args, "no_color", False):
+        return False
+    if getattr(args, "color", False):
+        return True
+    return sys.stdout.isatty() and "NO_COLOR" not in os.environ
+
+
+def _color_flags(parser: argparse.ArgumentParser) -> None:
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--color", action="store_true",
+                       help="colour even when the output is not a terminal")
+    group.add_argument("--no-color", action="store_true")
+
+
 def cmd_blame(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path.cwd())
@@ -143,11 +164,18 @@ def cmd_blame(args: argparse.Namespace) -> int:
         ui.err.bad(f"Cannot blame {rel} ({e})")
         return 1
 
+    try:
+        lines = blame.select(lines, args.lines)
+    except ValueError as e:
+        ui.err.bad(str(e))
+        return 1
+    shown = f"{rel}:{args.lines}" if args.lines else rel
+
     if args.json:
         print(json.dumps(blame.to_json(lines, rel), indent=2))
     else:
-        color = sys.stdout.isatty() and not args.no_color and "NO_COLOR" not in os.environ
-        print(blame.render(lines, rel, color=color, glyphs=blame.glyphs_for(sys.stdout)))
+        print(blame.render(lines, shown, color=_use_color(args),
+                           glyphs=blame.glyphs_for(sys.stdout)))
     return 0
 
 
@@ -335,8 +363,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         print(json.dumps(index.to_json(hits), indent=2))
         return 0
 
-    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
-    print(searchview.render(hits, matcher, total=len(entries), color=color))
+    print(searchview.render(hits, matcher, total=len(entries),
+                            color=_use_color(args)))
     return 0 if hits else 1
 
 
@@ -376,8 +404,7 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         ui.err.bad(f"{args.repo} is not a git repository")
         return 1
     checks = doctor.run(repo)
-    color = sys.stdout.isatty() and "NO_COLOR" not in os.environ
-    print(doctor.render(checks, color=color))
+    print(doctor.render(checks, color=_use_color(args)))
     return 1 if any(c.status == doctor.FAIL for c in checks) else 0
 
 
@@ -444,8 +471,10 @@ def main(argv: list[str] | None = None) -> int:
 
     bl = sub.add_parser("blame", help="show a file annotated with the prompt behind each line")
     bl.add_argument("file")
+    bl.add_argument("-L", "--lines", metavar="N,M",
+                    help="only these lines, as git blame spells it: 5,8 or 5")
     bl.add_argument("--json", action="store_true", help="machine-readable output")
-    bl.add_argument("--no-color", action="store_true")
+    _color_flags(bl)
     bl.set_defaults(func=cmd_blame)
 
     show = sub.add_parser("show", help="show all prompt receipts recorded for a commit")
@@ -489,6 +518,7 @@ def main(argv: list[str] | None = None) -> int:
                       help="exclude prompts that only came from teammates")
     find.add_argument("--limit", type=int, default=20, help="0 for no limit")
     find.add_argument("--json", action="store_true")
+    _color_flags(find)
     find.set_defaults(func=cmd_search)
 
     rep = sub.add_parser("repair",
@@ -499,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
 
     doc = sub.add_parser("doctor", help="check that this repo is actually being recorded")
     doc.add_argument("repo", nargs="?", default=".")
+    _color_flags(doc)
     doc.set_defaults(func=cmd_doctor)
 
     args = parser.parse_args(argv)

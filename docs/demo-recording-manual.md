@@ -1,228 +1,171 @@
 # Recording the demo — the manual
 
 For you, at the keyboard. [The build document](day6-b-envdiff-demo.md) makes the subject;
-this one turns it into a file you can send someone. Read it once end to end before you
-start, because step 1 constrains everything after it.
+this one turns it into a file you can send someone.
 
-Target: **one take, 2 to 3 minutes, no edit beyond trimming the ends.** Anything longer
-gets scrubbed rather than watched, and anything that needs editing does not get re-recorded
-when we change our minds.
-
----
-
-## 0 — decide what this is for first
-
-Two different artifacts, and conflating them is how demos die half-finished:
-
-| | **The 2-minute pitch** | **The 8-minute walkthrough** |
-|---|---|---|
-| For | an EM who has not heard of this | someone who already said "show me more" |
-| Shows | one `blame`, one `search`, the secret beat | the whole surface, including `doctor` and sharing |
-| Needs | the vague-vs-precise contrast on screen | a second repo, a remote |
-
-**Record the 2-minute one.** It is the thing that gets you the reviewer conversations the
-[roadmap](roadmap.md#running-alongside-not-after) is waiting on. The walkthrough is worth
-making only once someone has asked.
-
----
-
-## 1 — the terminal, before anything else
-
-This matters more than any other setup step: **the recording is only as legible as the
-terminal**, and a 14pt terminal on a 4K screen is unreadable in a video player.
+**The short version: you do not hand-record anything any more.**
 
 ```powershell
-# Windows Terminal: Settings -> your profile -> Appearance
+cd C:\Users\subCl\Documents\Fun_stuff\prompt_version_system\tools
+vhs demo.tape
+```
+
+That produces `pblame-demo.mp4` — a real terminal running real commands against
+`dummy_clock`, 52 seconds, 1280×560, about 460 KB. It already works; the current render is
+in `demo/`, which is gitignored because it is regenerable. Everything below explains how to
+change it and when to reach for something else.
+
+---
+
+## 0 — the two artifacts, and which one you have
+
+| | **The pitch** | **The walkthrough** |
+|---|---|---|
+| For | an EM who has not heard of this | someone who already said "show me more" |
+| Shows | `blame`, `search`, the secret beat, `doctor` | the whole surface, two repos, a remote |
+| You have | ✔ [the tape](../tools/demo.tape) and [the page](#the-page) | not built — worth doing only once asked |
+
+The pitch is what gets you the reviewer conversations the
+[roadmap](roadmap.md#running-alongside-not-after) is waiting on.
+
+## The page
+
+**<https://claude.ai/artifact/NLNq4YEEaZR6hjoHrM8A17>** — the same story in text and
+terminal output, with the reasoning written beside each block. Every block is verbatim
+stdout from the same commands the tape runs; the only edit is turning the ANSI colour
+escapes into CSS.
+
+It needs no player and no download, which makes it the better thing to drop in a Slack DM.
+The video is better when someone is watching you talk. **It is private until you share it**
+from the page's share menu.
+
+Use whichever suits the recipient. They are built from the same commands.
+
+---
+
+## 1 — how the tape works
+
+[`tools/demo.tape`](../tools/demo.tape) is a [vhs](https://github.com/charmbracelet/vhs)
+script. vhs opens a real headless terminal, types the commands, and encodes the result. The
+output is a genuine recording — not an animation of captured text — so it cannot drift from
+what the tool actually does.
+
+Five beats, each ending with an off-camera `Clear-Host`:
+
+| | Beat | Why it is there |
+|---|---|---|
+| 1 | `git blame -L 136,140 time.js` | establishes what git can already tell you |
+| 2 | `pblame blame time.js -L 136,140` | **the shot.** Four prompts, five lines |
+| 3 | `pblame search` twice | it is a library, and it survived a rename |
+| 4 | `pblame redact` + `push --dry-run` | answers "so my secrets are in the repo now?" |
+| 5 | `pblame doctor` | it tells you when it stops working |
+
+**Beat 2 is the demo.** Line 138 is a hundred characters of user-facing copy that came from
+four words — *"switch to more descriptive"* — and directly beneath it line 139 came from a
+forty-word specification. Same author, same file, same review. If you cut the video to one
+shot, cut it to that one.
+
+### Changing it
+
+- **Timing:** the `Sleep` after each `Enter`. Beat 2 holds 9s because it is the one that
+  needs reading time; the rest hold 4–5s.
+- **Size:** `Set Width` / `Set Height`. 560 is tuned to the tallest beat — the first render
+  used 820 and left a third of every frame empty. If you add a beat with more output, raise
+  it and re-check.
+- **A GIF as well:** add a second `Output pblame-demo.gif` line. Expect roughly 10× the
+  size; MP4 is the one to send.
+- **Line 138 is the width constraint.** It is 101 characters, so anything narrower than
+  about 1200px wraps it and the punchline loses its shape.
+
+### Setup, off camera
+
+The tape sets `[Console]::OutputEncoding` before filming. **Do not remove that line.** We
+emit UTF-8 correctly, but PowerShell decodes a native command's bytes with *its* setting,
+and beat 2 contains an em dash and a 🕐. Without it you get `ù` on camera — that is what
+day 7's `before-search.txt` shows.
+
+Beat 4 writes a `prod.env` prop off camera and deletes it at the end. The AWS key in it is
+AWS's own documentation example, so nothing in the frame is a live credential.
+
+---
+
+## 2 — before you render
+
+- [ ] `pblame doctor` in dummy_clock says *Recording is live* — one warning about
+      `8b731e5` is expected and explained in [day 9](day9-fix-verification.md#18-doctor-only-looked-for-dead-notes-in-the-mirror--fixed)
+- [ ] `git status --short` in dummy_clock prints nothing
+- [ ] you are not mid-session in dummy_clock with an open receipt
+
+The render takes about 90 seconds and needs no attention. It does not touch the repo: every
+filmed command is read-only, and the one prop is cleaned up.
+
+---
+
+## 3 — when you still need to record by hand
+
+vhs films a terminal and nothing else. Reach for a screen recorder when the demo needs an
+editor, a browser, or a GitHub PR in frame — which is exactly what **Phase 2** will need.
+
+**ScreenToGif** (free, no account) is the one to use: region capture, trims and exports in
+the same app. OBS if you want scene control and have 20 minutes.
+
+Then the terminal setup matters again, because you are filming your own:
+
+```powershell
+# Windows Terminal -> Settings -> your profile -> Appearance
 #   Font: Cascadia Mono or JetBrains Mono, size 18-20
 #   Colour scheme: One Half Dark or Campbell  (NOT a low-contrast theme)
 #   Cursor: filled box, blinking off
 ```
 
-Then size the window to **100 columns by 30 rows** and leave it there:
-
 ```powershell
 $h = (Get-Host).UI.RawUI
 $h.WindowSize = New-Object Management.Automation.Host.Size(100, 30)
-```
-
-100×30 at 18pt lands near 1280×720, which is what a video player shows without scaling.
-`pblame blame` lays out against terminal width, so **set this before you record, not
-after** — the output wraps differently and a re-record will not match your narration.
-
-### Two things specific to this tool
-
-```powershell
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Set-Alias pblame "C:\Users\subCl\Documents\Fun_stuff\prompt_version_system\.venv\Scripts\pblame.exe"
 ```
 
-The first line is not optional. We emit UTF-8 correctly now, but PowerShell decodes a
-native command's bytes with *its* own setting, and the demo deliberately contains an em
-dash. Without it you get `ù` on camera. The second is so the prompt reads `pblame blame`
-and not a 90-character path — **do this, it is the difference between looking like a tool
-and looking like a script**.
+The alias is worth the two seconds: it is the difference between looking like a tool and
+looking like a script. None of these survive a new tab, which is the thing that ruins takes.
 
-### Clear the screen properly
+To clear scrollback properly, use `Clear-Host`, or Windows Terminal's **Clear Buffer**
+(`Ctrl`+`Shift`+`P`, type "clear"). *(`[Console]::SetWindowPosition(0,0)` throws "The handle
+is invalid" on some hosts — I tried it.)*
 
-A stray scroll on camera reveals your fumbling, so the scrollback has to be gone, not
-just scrolled past. `Clear-Host` is the one to use:
-
-```powershell
-Clear-Host
-```
-
-To be certain the buffer is empty — the thing that actually matters — use Windows
-Terminal's own **Clear Buffer**: `Ctrl`+`Shift`+`P`, type "clear", pick *Clear Buffer*.
-Bind it to a key if you are doing several takes.
-
-*(Do not bother with `[Console]::SetWindowPosition(0,0)`. I tried it; it throws "The
-handle is invalid" depending on the host.)*
+Settings: **30fps**, **MP4 not GIF**, no webcam, no mouse highlight. Close Slack and mail
+rather than minimising them — a toast is the risk, not alt-tab.
 
 ---
 
-## 2 — capture
+## 4 — audio: don't
 
-| Tool | Why | Cost |
-|---|---|---|
-| **ScreenToGif** | records a window region, trims and exports MP4/GIF in the same app, no account | free, recommended |
-| OBS Studio | better quality, scene control | free, 20 minutes of setup |
-| Xbox Game Bar (`Win`+`G`) | already installed | captures the whole window only, no trimming |
+Record silent and write the pitch in the message you send it with. You will re-record four
+times getting the words right, your room is not quiet, and a silent clip with three lines of
+written framing is more likely to be watched in a DM than a video someone needs headphones
+for. If you do want voice, record it as a separate pass over the finished video so a fluffed
+sentence costs you the audio take rather than everything.
 
-**Use ScreenToGif.** Region capture, 30fps, record only the terminal window — not the
-desktop, not a second monitor, nothing with your email address or a client name in it.
-
-Settings that matter:
-- **30fps.** 60 doubles the file for text that does not move.
-- **MP4, not GIF.** A 2-minute GIF of a terminal is 40MB+ and loops distractingly.
-- **No webcam, no mouse highlight.** Nothing to look at but the text.
-
-### Audio: don't
-
-Record **silent** and write the narration as a caption or a README beside the file.
-Reasons: you will re-record four times to get the words right, your room is not quiet,
-and a silent 2-minute terminal clip with a three-line written pitch is more likely to be
-watched in a Slack DM than a video someone has to find headphones for.
-
-If you do want voice, record it as a **separate** pass over the finished video rather than
-live — then a fluffed sentence costs you the audio take, not the whole thing.
-
----
-
-## 3 — before you hit record
-
-A checklist, because each of these has ruined a take:
-
-- [ ] `pblame doctor` says **Recording is live and healthy**, with no warnings
-- [ ] `git log --oneline` shows the 5–6 demo commits and nothing embarrassing
-- [ ] `Get-Content .git\pblame\hook.log` is empty or the file is absent
-- [ ] `pblame share --off` — sharing is **off**, so the `share` beat starts from zero
-- [ ] Working tree clean: `git status --short` prints nothing
-- [ ] Notifications silenced (`Win`+`A` → Focus assist → Alarms only)
-- [ ] Browser, Slack, mail **closed**, not minimised — alt-tab is not the risk, a toast is
-- [ ] You have run the whole sequence once already, untimed, to know what the output looks like
-- [ ] Terminal is 100×30 and the alias is set in *this* session
-
-The last one bites every time: the alias and the encoding line do not survive a new tab.
-
----
-
-## 4 — the shot list
-
-Type each command. **Do not paste** — paste appears instantly and reads as fake. Type
-at normal speed and pause 2 seconds after each output before the next command.
-
-### Beat 1 — the hook (0:00–0:20)
-
-```powershell
-git blame -L 40,48 envdiff.py
-```
-
-Say (caption): *"Standard git blame. Himank, Tuesday, one commit. That is everything git
-can tell you about why this line exists."*
-
-### Beat 2 — the same lines, with intent (0:20–1:10)
-
-```powershell
-pblame blame envdiff.py
-```
-
-Let it render. Then scroll to the redaction block and hold there. **This is the shot.**
-Caption:
-
-> *"Same lines. This one came from 'this thing handles secrets, make it safer'. The one
-> below it came from a prompt that specified the exact rule — no values, key names and
-> lengths only. Same author, same commit, same review. Only one of them was a decision."*
-
-Hold for 4 seconds. It is the only moment in the video that needs time to land.
-
-### Beat 3 — it is a library, not just a view (1:10–1:40)
-
-```powershell
-pblame search "make it"
-```
-
-Caption: *"Every instruction anyone gave this codebase, searchable. Two of them were
-'make it' something."*
-
-```powershell
-pblame search --path envfile.py
-```
-
-Caption: *"Including prompts from before that file was renamed."*
-
-### Beat 4 — the objection, answered (1:40–2:10)
-
-Someone is already thinking *"so my prompts are now in the repo forever?"* Answer it
-before they ask:
-
-```powershell
-pblame doctor
-```
-
-Point at the `secrets in prompts` line. Caption: *"My prompt history has an AWS key in
-it. It knows."*
-
-```powershell
-pblame push --dry-run --secrets-only
-```
-
-Caption: *"And that is exactly what leaves when I share — the key removed, the fact that
-a key was removed kept. The verbatim text never leaves this machine."*
-
-### Beat 5 — stop
-
-Stop recording on the last line of output. **No sign-off, no "so yeah".** Trim the
-trailing second in ScreenToGif.
-
----
-
-## 5 — after
-
-1. Trim the first and last second. Nothing else.
-2. Export **MP4, 30fps, original size**. Expect 3–8MB.
-3. Name it `pblame-demo-2min-2026-10-10.mp4` — dated, because there will be a second one.
-4. Write the three-line pitch in the message you send it with, not in the video:
+The three lines to send with it:
 
 > `git blame` tells you who wrote a line. This tells you what they asked for.
-> Every line here is traceable to the English instruction that produced it — and you can
-> see which instructions were actually decisions and which were "make it safer".
-> Two minutes, no audio.
-
-5. Keep the raw capture until someone has watched it.
+> Every line is traceable to the English instruction that produced it — and you can see
+> which instructions were decisions and which were "make it look nicer".
+> 52 seconds, no audio.
 
 ---
 
-## 6 — if it goes wrong
+## 5 — if it goes wrong
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `ù` or `?` where an em dash should be | `[Console]::OutputEncoding` not set in this session | set it, re-record |
-| `pblame blame` wraps badly | terminal resized after you planned the shot | restore 100×30 |
-| `blame` shows fewer prompts than expected | you amended or rebased after the build | `pblame doctor`, check `recorded history` for orphans |
-| `doctor` warns about an open receipt | a Claude Code session is still running | close it, re-run |
-| `search` finds nothing | wrong directory | `cd` to the envdiff repo |
-| Output is correct but boring | you are filming the wrong file | the contrast is in `envdiff.py`'s redaction block — find it before recording |
+| `vhs: command not found` | not on PATH | `scoop install vhs` — it pulls ttyd and ffmpeg too |
+| Render hangs | ttyd port in use | close other vhs runs, retry |
+| `ù` where an em dash should be | the encoding line was removed from the tape | put it back |
+| Line 138 wraps | `Set Width` below ~1200 | raise it |
+| Big empty area under the output | `Set Height` taller than the tallest beat | lower it |
+| `doctor` shows an open receipt | a Claude Code session is still live in dummy_clock | close it, re-render |
+| Output is right but boring | you are filming the wrong lines | the contrast is `time.js` 136–140, nothing else |
 
-**If a take is 80% good, keep it and move on.** The point of this is to get three EMs to
-react, not to be a good video. A second take costs 20 minutes; not having the
-conversation has cost four weeks.
+**If a render is 80% good, ship it.** The point is to get three EMs to react, not to make a
+good video. Re-rendering costs 90 seconds, so there is no excuse for a bad one — but there
+is also no prize for a perfect one.

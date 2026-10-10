@@ -12,7 +12,7 @@ the day-9 verification run.
 | [day7-findings.md](day7-findings.md) | closed — 7 fixed | What the run found and how each was fixed. |
 | [day8-fix-verification.md](day8-fix-verification.md) | done (9 Oct) | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
 | [day9-fix-verification.md](day9-fix-verification.md) | **done (10 Oct)** | The day-8 fixes verified on real history, by me, from the terminal. Found two more, both fixed. |
-| [demo-recording-manual.md](demo-recording-manual.md) | **ready — yours** | How to actually record the demo: terminal setup, capture tool, shot list, what to say. |
+| [demo-recording-manual.md](demo-recording-manual.md) | **done — rendered** | The demo is a script now: `vhs tools/demo.tape` re-renders it in 90s. Manual covers changing it, and hand-recording for Phase 2. |
 | [day8-findings.md](day8-findings.md) | **5 fixed, 1 open by decision** | All 7 day-7 fixes verified. The BOM and every miscounted total are fixed; dead mirror notes are reported, not removed. |
 | [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **ready — yours, next** | The 20 prompts that build the demo subject. Updated 10 Oct with a secrets prompt and the search/sharing beats. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
@@ -32,7 +32,7 @@ the day-9 verification run.
 | Maintenance | `repair` — re-cleans prompts recorded by an older version |
 | Removal | `uninstall --purge` — every pblame ref, enumerated not named |
 
-228 tests. Validated across four hostile runs on a real repo.
+238 tests. Validated across four hostile runs on a real repo.
 
 ## Agreed sequence from here
 
@@ -44,9 +44,10 @@ the day-9 verification run.
 6. ✔ fixed 5 of them; the 6th is a decision, see the backlog
 7. ✔ [day 9](day9-fix-verification.md) — verified them on real history; found and fixed
    three more, including a redaction gap that leaked prefixed secret keys
-8. **→ build and record the demo** — [the prompts](day6-b-envdiff-demo.md), then
-   [the manual](demo-recording-manual.md) (yours)
-9. then Phase 2 — the GitHub PR surface
+8. ✔ the demo — rendered from dummy_clock's real history, as
+   [a video](../tools/demo.tape) and [a page](demo-recording-manual.md#the-page).
+   The envdiff build is now optional polish, not a blocker.
+9. **→ Phase 2 — the GitHub PR surface**
 
 Dropped by decision: chasing the external tester's feedback.
 

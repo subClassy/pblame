@@ -137,3 +137,108 @@ def test_a_leading_blank_line_still_starts_a_group(repo):
     attach(repo, ("wrote it", "a.py", [(1, 2)]))
     text = blame.render(blame.attribute(repo, "a.py"), "a.py", color=False)
     assert "wrote it" in text
+
+
+# --- -L, so a demo or a review can look at one region ---------------------
+
+def test_line_range_selects_a_slice_keeping_the_files_own_numbering(repo):
+    (repo / "a.py").write_text("".join(f"line {n}\n" for n in range(1, 11)))
+    attach(repo, ("first half", "a.py", [(1, 5)]), ("second half", "a.py", [(6, 10)]))
+    lines = blame.attribute(repo, "a.py")
+
+    picked = blame.select(lines, "4,7")
+    assert [l.number for l in picked] == [4, 5, 6, 7]
+    assert [l.receipt.prompt.text for l in picked] == [
+        "first half", "first half", "second half", "second half"]
+
+
+def test_a_single_line_is_a_valid_range(repo):
+    (repo / "a.py").write_text("one\ntwo\nthree\n")
+    attach(repo, ("all of it", "a.py", [(1, 3)]))
+    picked = blame.select(blame.attribute(repo, "a.py"), "2")
+    assert [l.number for l in picked] == [2]
+
+
+def test_no_range_is_the_whole_file(repo):
+    (repo / "a.py").write_text("one\ntwo\n")
+    attach(repo, ("all of it", "a.py", [(1, 2)]))
+    lines = blame.attribute(repo, "a.py")
+    assert blame.select(lines, None) == lines
+
+
+def test_a_range_past_the_end_is_empty_not_an_error(repo):
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("it", "a.py", [(1, 1)]))
+    assert blame.select(blame.attribute(repo, "a.py"), "50,60") == []
+
+
+def test_a_nonsense_range_is_rejected():
+    import pytest
+    for spec in ("9,2", "0,5", "abc", "-3", "5,x"):
+        with pytest.raises(ValueError):
+            blame.select([], spec)
+
+
+def test_the_header_counts_the_slice_and_numbers_stay_wide_enough(repo):
+    """A slice of lines 95-100 is six lines but still needs three columns."""
+    (repo / "a.py").write_text("".join(f"line {n}\n" for n in range(1, 101)))
+    attach(repo, ("the lot", "a.py", [(1, 100)]))
+    picked = blame.select(blame.attribute(repo, "a.py"), "95,100")
+
+    text = blame.render(picked, "a.py:95,100", color=False)
+    assert "6/6 lines from 1 prompt(s)" in text
+    assert " 95 " in text and " 100 " in text
+
+
+def test_cli_rejects_a_bad_range_without_a_traceback(repo, monkeypatch, capsys):
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("it", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+
+    assert main(["blame", "a.py", "-L", "9,2"]) == 1
+    assert "line range" in capsys.readouterr().err
+
+
+# --- --color, for piping into less -R or capturing for a document ---------
+
+def test_color_is_off_when_redirected_and_forced_by_the_flag(repo, monkeypatch, capsys):
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("it", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+
+    main(["blame", "a.py"])
+    assert "\033[" not in capsys.readouterr().out, "pytest's stdout is not a tty"
+
+    main(["blame", "a.py", "--color"])
+    assert "\033[" in capsys.readouterr().out
+
+    main(["blame", "a.py", "--no-color"])
+    assert "\033[" not in capsys.readouterr().out
+
+
+def test_forcing_color_beats_NO_COLOR(repo, monkeypatch, capsys):
+    """An explicit flag wins over the environment: the user just asked."""
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("it", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    main(["blame", "a.py"])
+    assert "\033[" not in capsys.readouterr().out
+    main(["blame", "a.py", "--color"])
+    assert "\033[" in capsys.readouterr().out
+
+
+def test_search_and_doctor_take_the_same_flags(repo, monkeypatch, capsys):
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("find me", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+
+    main(["search", "find", "--color"])
+    assert "\033[" in capsys.readouterr().out
+    main(["doctor", "--color"])
+    assert "\033[" in capsys.readouterr().out
