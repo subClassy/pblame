@@ -9,8 +9,8 @@ Start here. Written 2026-10-08, after search and repair merged.
 | **[roadmap.md](roadmap.md)** | **live** | The plan. Phases, gates, measured limits, known debt. |
 | [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | done (8 Oct) | Validating sharing, search and repair on the real dummy_clock. |
 | [day7-findings.md](day7-findings.md) | closed — 7 fixed | What the run found and how each was fixed. |
-| [day8-fix-verification.md](day8-fix-verification.md) | **in progress — step 1 done** | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
-| [day8-findings.md](day8-findings.md) | **open — 3 bugs, unfixed** | Fix 5 verified; a BOM breaks configs, the mirror keeps dead notes. |
+| [day8-fix-verification.md](day8-fix-verification.md) | done (9 Oct) | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
+| [day8-findings.md](day8-findings.md) | **open — 6 bugs, unfixed** | All 7 fixes verified. A BOM breaks configs; the mirror keeps dead notes; push miscounts. |
 | [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — after day 8** | The demo recording. Never run. Still the only planned artifact to show anyone. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
 | [gameplan-v2.md](gameplan-v2.md) | **partly outdated** | Architecture rationale and the day-5a findings: still true. Its "Revised week" schedule is dead — superseded by roadmap.md. |
@@ -37,9 +37,10 @@ Start here. Written 2026-10-08, after search and repair merged.
 2. ✔ merge `feat/search` into main
 3. ✔ day 7 validation — found 7 bugs, see [day7-findings.md](day7-findings.md)
 4. ✔ fixed all 7, merged (`7065826`) — plus a regression the fixing caused
-5. **→ run [day 8](day8-fix-verification.md)** to verify them (yours)
+5. ✔ day 8 verification — all 7 fixes hold; 6 new findings, none blocking
 6. **→ record [the envdiff demo](day6-b-envdiff-demo.md)** (yours)
-7. then Phase 2 — the GitHub PR surface
+7. fix the day-8 findings (none block the demo)
+8. then Phase 2 — the GitHub PR surface
 
 Dropped by decision: chasing the external tester's feedback.
 
