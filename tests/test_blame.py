@@ -198,3 +198,47 @@ def test_cli_rejects_a_bad_range_without_a_traceback(repo, monkeypatch, capsys):
 
     assert main(["blame", "a.py", "-L", "9,2"]) == 1
     assert "line range" in capsys.readouterr().err
+
+
+# --- --color, for piping into less -R or capturing for a document ---------
+
+def test_color_is_off_when_redirected_and_forced_by_the_flag(repo, monkeypatch, capsys):
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("it", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+
+    main(["blame", "a.py"])
+    assert "\033[" not in capsys.readouterr().out, "pytest's stdout is not a tty"
+
+    main(["blame", "a.py", "--color"])
+    assert "\033[" in capsys.readouterr().out
+
+    main(["blame", "a.py", "--no-color"])
+    assert "\033[" not in capsys.readouterr().out
+
+
+def test_forcing_color_beats_NO_COLOR(repo, monkeypatch, capsys):
+    """An explicit flag wins over the environment: the user just asked."""
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("it", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("NO_COLOR", "1")
+
+    main(["blame", "a.py"])
+    assert "\033[" not in capsys.readouterr().out
+    main(["blame", "a.py", "--color"])
+    assert "\033[" in capsys.readouterr().out
+
+
+def test_search_and_doctor_take_the_same_flags(repo, monkeypatch, capsys):
+    from pblame.cli import main
+    (repo / "a.py").write_text("one\n")
+    attach(repo, ("find me", "a.py", [(1, 1)]))
+    monkeypatch.chdir(repo)
+
+    main(["search", "find", "--color"])
+    assert "\033[" in capsys.readouterr().out
+    main(["doctor", "--color"])
+    assert "\033[" in capsys.readouterr().out
