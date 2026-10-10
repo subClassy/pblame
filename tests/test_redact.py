@@ -226,3 +226,41 @@ def test_home_paths_redact_the_username_on_every_platform_spelling(path):
     out = r(path)
     assert "subCl" not in out.text, f"username leaked from {path!r}"
     assert "HOME_PATH" in out.counts
+
+
+# --- finding 19: .env keys are prefixed, and \b cannot see past an underscore
+
+@pytest.mark.parametrize("text, key, rule", [
+    ("DATABASE_PASSWORD=hunter2correct", "DATABASE_PASSWORD", "PASSWORD"),
+    ("DB_PASSWORD = hunter2correct", "DB_PASSWORD", "PASSWORD"),
+    ("CLIENT_SECRET=abc123def456", "CLIENT_SECRET", "PASSWORD"),
+    ("MYSQL_PWD='letmein'", "MYSQL_PWD", "PASSWORD"),
+    ("SESSION_TOKEN=abcdefghijklmnopqrstuvwx", "SESSION_TOKEN", "TOKEN"),
+    ("STRIPE_API_KEY=abcdefghijklmnopqrstuvwx", "STRIPE_API_KEY", "TOKEN"),
+])
+def test_an_underscore_prefixed_secret_key_is_redacted(text, key, rule):
+    """The demo subject is .env files, where nothing is ever named bare
+    `password`. An underscore is a word character, so `\b` never matched."""
+    result = r(text)
+    assert rule in [d.name for d in result.detections], result.text
+    assert key in result.text, "the key name must survive; only the value goes"
+    assert "hunter2correct" not in result.text
+    assert "letmein" not in result.text
+    assert "abc123def456" not in result.text
+
+
+@pytest.mark.parametrize("text", [
+    "use oauth=abcdefghijklmnopqrstuvwx for the handshake",
+    "the mypassword=foo convention is ugly",
+])
+def test_the_prefix_allowance_does_not_match_mid_word(text):
+    """`oauth=` must not read as `auth=`: the lookbehind allows an underscore
+    before the keyword, not an alphanumeric."""
+    assert not [d for d in r(text).detections if d.name in ("PASSWORD", "TOKEN")]
+
+
+def test_a_named_token_keeps_its_key_rather_than_falling_to_entropy():
+    """Before the fix, SESSION_TOKEN=<high entropy> was swallowed whole by the
+    entropy fallback and the key name was lost with it."""
+    result = r("SESSION_TOKEN=abcdefghijklmnopqrstuvwxyz0123")
+    assert result.text == "SESSION_TOKEN=[REDACTED_TOKEN]"

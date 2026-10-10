@@ -58,11 +58,17 @@ RULES: tuple[Rule, ...] = (
     Rule("BEARER_TOKEN", "HIGH",
          re.compile(r"(?i)\b(bearer\s+)([A-Za-z0-9_.~+/=-]{10,})"), secret_group=2),
     # Keeps the key name and quoting, replaces only the value.
+    #
+    # `(?<![A-Za-z0-9])` rather than `\b`: an underscore is a word character,
+    # so `\b` never matches inside DATABASE_PASSWORD or CLIENT_SECRET — which
+    # is how every real .env names its keys. The lookbehind allows a `_`
+    # prefix while still refusing mid-word matches, so `oauth=` does not read
+    # as `auth=` and `mypassword=` is left alone.
     Rule("PASSWORD", "HIGH",
-         re.compile(r"""(?i)\b(password|passwd|pwd|secret)(\s*[:=]\s*)(["']?)([^\s"',;]{3,})(\3)"""),
+         re.compile(r"""(?i)(?<![A-Za-z0-9])(password|passwd|pwd|secret)(\s*[:=]\s*)(["']?)([^\s"',;]{3,})(\3)"""),
          secret_group=4),
     Rule("TOKEN", "MEDIUM",
-         re.compile(r"""(?i)\b(token|auth|api[_-]?key|access[_-]?key)(\s*[:=]\s*)(["']?)([^\s"',;]{16,})(\3)"""),
+         re.compile(r"""(?i)(?<![A-Za-z0-9])(token|auth|api[_-]?key|access[_-]?key)(\s*[:=]\s*)(["']?)([^\s"',;]{16,})(\3)"""),
          secret_group=4),
     Rule("EMAIL", "MEDIUM",
          re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")),
