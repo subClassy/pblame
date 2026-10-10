@@ -95,15 +95,18 @@ Nothing before this proves the venture thesis. If provenance turns out not to pr
 defects, what remains is a well-made audit log — a real business, not a venture-scale one.
 Keep saying that out loud.
 
-## Agreed sequence (2026-10-08)
+## Agreed sequence (updated 2026-10-09)
 
 1. ✔ `pblame repair`
 2. ✔ merge search into main
-3. **[Day 7 validation](day7-dummy-clock-phase13.md)** — sharing, search and repair on the
-   real dummy_clock. Phases 1 and 3 have only been exercised on scratch repos.
-4. **[The envdiff demo](day6-b-envdiff-demo.md)** — still the only planned artifact to
+3. ✔ [Day 7 validation](day7-dummy-clock-phase13.md) on the real dummy_clock — 7 bugs,
+   all [fixed](day7-findings.md), plus a regression the fixing caused.
+4. ✔ [Day 8 verification](day8-fix-verification.md) — every fix held; 6 more
+   [findings](day8-findings.md), 5 now fixed. The 6th is a deliberate non-fix:
+   see [the prune decision](day8-findings.md#the-prune-decision).
+5. **[The envdiff demo](day6-b-envdiff-demo.md)** — still the only planned artifact to
    show anyone.
-5. Phase 2.
+6. Phase 2.
 
 Chasing the external tester was dropped by decision.
 
@@ -115,8 +118,8 @@ Chasing the external tester was dropped by decision.
   and those lead to different products. Needs the demo recorded first.
 - **Nobody is using this yet, including us.** dummy_clock has gone four weeks without a
   commit and the external tester never reported back. Three phases of engineering against
-  zero usage signal is now a larger risk than any missing feature; steps 3 and 4 above are
-  the cheapest way to change that.
+  zero usage signal is now a larger risk than any missing feature; step 5 above is the
+  cheapest way to change that.
 - **The Go or Rust port.** The gameplan put this at milestone 2 and we skipped it.
   Distribution friction is real — the friend needed Python and a wheel — and blameprompt
   is immune by construction to the encoding bug class that cost us 26 minutes of
