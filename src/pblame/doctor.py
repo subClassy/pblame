@@ -166,13 +166,22 @@ def _check_staging(repo: Path) -> list[Check]:
 
 def _check_history(repo: Path) -> list[Check]:
     out = []
+    shas = notes.commits_with_notes(repo, notes.NOTES_REF)
+    count = len(shas)
+    detail = f"{count} commit{plural(count)} carry recorded prompts"
+    # The same rot the mirror check reports, in the verbatim record, where it
+    # matters more: this is the only copy of those prompts. A rewrite that
+    # bypassed post-rewrite is how one gets here.
     try:
-        listed = git(repo, "notes", "--ref", notes.NOTES_REF, "list")
-        count = len([l for l in listed.splitlines() if l.strip()])
+        dead = unreachable(repo, shas)
     except GitError:
-        count = 0
-    out.append(Check(PASS if count else WARN, "recorded history",
-                     f"{count} commit{plural(count)} carry recorded prompts"))
+        dead = set()
+    if dead:
+        shown = ", ".join(sorted(s[:7] for s in dead)[:3])
+        out.append(Check(WARN, "recorded history",
+                         f"{detail}, {len(dead)} of them no longer in history ({shown})"))
+    else:
+        out.append(Check(PASS if count else WARN, "recorded history", detail))
 
     try:
         head = notes.read(repo, "HEAD")

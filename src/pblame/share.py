@@ -43,6 +43,9 @@ class Planned:
     # `is_new` says whether to write the note; this says what the developer
     # actually contributed, which is the number worth reporting.
     changed: list = field(default_factory=list)
+    # Detections in `changed` only. `detections` covers every receipt, which
+    # is what a dry-run preview of the whole payload wants.
+    changed_detections: list = field(default_factory=list)
 
 
 def redact_receipt(receipt, cfg) -> tuple[object, list]:
@@ -69,11 +72,12 @@ def plan(repo: Path, cfg: Config) -> list[Planned]:
     mirror = index.notes_by_commit(repo, notes.SHARED_REF)
     planned = []
     for sha, local in index.notes_by_commit(repo, notes.NOTES_REF).items():
-        receipts, detections = [], []
-        for r in local:
-            clean, found = redact_receipt(r, cfg.redaction)
-            receipts.append(clean)
-            detections += found
+        # Kept paired so a detection can be attributed to the receipt it came
+        # from: "N secrets redacted" means the ones in what this push sends,
+        # not every secret in a note that happened to change.
+        scanned = [redact_receipt(r, cfg.redaction) for r in local]
+        receipts = [clean for clean, _ in scanned]
+        detections = [d for _, found in scanned for d in found]
         if not receipts:
             continue
 
@@ -85,11 +89,13 @@ def plan(repo: Path, cfg: Config) -> list[Planned]:
         desired = notes.fold([r for r in existing if r.prompt.id not in ours] + receipts)
 
         held = {r.prompt.id: notes.signature([r]) for r in existing}
+        fresh = [(clean, found) for clean, found in scanned
+                 if notes.signature([clean]) != held.get(clean.prompt.id)]
         planned.append(Planned(
             sha, receipts, detections, desired=desired,
             is_new=notes.signature(desired) != notes.signature(existing),
-            changed=[r for r in receipts
-                     if notes.signature([r]) != held.get(r.prompt.id)]))
+            changed=[clean for clean, _ in fresh],
+            changed_detections=[d for _, found in fresh for d in found]))
     return planned
 
 
