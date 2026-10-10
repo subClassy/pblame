@@ -181,3 +181,21 @@ def test_no_mirror_means_no_mirror_check(repo):
     run_git(repo, "add", "-A")
     run_git(repo, "commit", "-q", "-m", "seed")
     assert "shared mirror" not in {c.label for c in doctor.run(repo)}
+
+
+def test_a_prompt_whose_commit_is_gone_is_reported_in_the_verbatim_record(repo):
+    """Worse than the mirror case: the verbatim ref is the only copy of those
+    prompts, so losing track of them silently is the failure to avoid."""
+    init(repo)
+    (repo / "a.py").write_text("x\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "seed")
+    notes.write(repo, run_git(repo, "rev-parse", "HEAD").strip(), [make_receipt()])
+    assert ("recorded history", doctor.PASS) in statuses(repo)
+
+    empty = repo / ".git" / "nohooks"
+    empty.mkdir()
+    run_git(repo, "-c", f"core.hooksPath={empty}", "commit", "-q", "--amend", "-m", "amended")
+
+    assert ("recorded history", doctor.WARN) in statuses(repo)
+    assert not failures(repo)
