@@ -260,7 +260,7 @@ def cmd_push(args: argparse.Namespace) -> int:
     # `changed`, not every receipt in a changed note: one edited redaction
     # rule touching two prompts was reported as four.
     new = sum(len(item.changed) for item in planned)
-    secrets = sum(len(item.detections) for item in planned if item.is_new)
+    secrets = sum(len(item.changed_detections) for item in planned)
 
     if not new:
         summary = f"Already shared, {total} prompt{plural(total)} on {cfg.share.remote}"

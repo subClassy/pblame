@@ -502,6 +502,31 @@ def test_an_unchanged_push_reports_nothing_changed(repo, origin):
     assert [p.changed for p in share.push(repo, cfg_of(repo))] == [[]]
 
 
+def test_the_secret_count_follows_the_changed_prompts(repo, origin):
+    """Finding 13's sibling: "N secrets redacted" counted every detection in a
+    note that changed, so re-redacting one prompt reported its neighbour's
+    secrets again."""
+    sha = record(repo, "ticket CUST-123456 came in", body="base\nx\n")
+    second = make_receipt(text="and ticket CUST-999999 too")
+    second.post_tree = "b" * 40
+    second.files = [FileChange(path="app.py", ranges=[(1, 1)])]
+    notes.merge_into(repo, sha, [second])
+
+    rule = {"pattern": r"CUST-\d{6,}", "replacement": "[ID]"}
+    (repo / config.FILENAME).write_text(json.dumps({"redaction": {"custom_patterns": [rule]}}))
+    share.push(repo, cfg_of(repo))      # both redacted, both new
+
+    # Now a rule that only touches the first prompt.
+    (repo / config.FILENAME).write_text(json.dumps({"redaction": {"custom_patterns": [
+        rule, {"pattern": "came in", "replacement": "[ARRIVED]"}]}}))
+
+    planned = share.plan(repo, cfg_of(repo))
+    assert [len(p.changed) for p in planned] == [1]
+    # Three detections live in that note; only two are in the prompt we resend.
+    assert len(planned[0].detections) == 3
+    assert len(planned[0].changed_detections) == 2
+
+
 def test_push_with_nothing_recorded_says_so(repo, origin, capsys, monkeypatch):
     """It reported "Already shared, 0 prompts on origin"."""
     from pblame.cli import main
