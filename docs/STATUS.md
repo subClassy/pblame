@@ -1,7 +1,7 @@
 # Status — where everything stands
 
-Start here. Written 2026-10-08, after search and repair merged. Updated 9 Oct, after
-the day-8 fixes.
+Start here. Written 2026-10-08, after search and repair merged. Updated 10 Oct, after
+the day-9 verification run.
 
 ## The docs, and whether to trust them
 
@@ -11,8 +11,10 @@ the day-8 fixes.
 | [day7-dummy-clock-phase13.md](day7-dummy-clock-phase13.md) | done (8 Oct) | Validating sharing, search and repair on the real dummy_clock. |
 | [day7-findings.md](day7-findings.md) | closed — 7 fixed | What the run found and how each was fixed. |
 | [day8-fix-verification.md](day8-fix-verification.md) | done (9 Oct) | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
+| [day9-fix-verification.md](day9-fix-verification.md) | **done (10 Oct)** | The day-8 fixes verified on real history, by me, from the terminal. Found two more, both fixed. |
+| [demo-recording-manual.md](demo-recording-manual.md) | **ready — yours** | How to actually record the demo: terminal setup, capture tool, shot list, what to say. |
 | [day8-findings.md](day8-findings.md) | **5 fixed, 1 open by decision** | All 7 day-7 fixes verified. The BOM and every miscounted total are fixed; dead mirror notes are reported, not removed. |
-| [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **scheduled — next** | The demo recording. Never run. Still the only planned artifact to show anyone. |
+| [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **ready — yours, next** | The 20 prompts that build the demo subject. Updated 10 Oct with a secrets prompt and the search/sharing beats. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
 | [gameplan-v2.md](gameplan-v2.md) | **partly outdated** | Architecture rationale and the day-5a findings: still true. Its "Revised week" schedule is dead — superseded by roadmap.md. |
 | [handover-prompt-attribution-mvp.md](handover-prompt-attribution-mvp.md) | historical | Product thesis, pricing, and the ruled-out dead ends, which all still stand. Its week-1 plan does not. |
@@ -30,7 +32,7 @@ the day-8 fixes.
 | Maintenance | `repair` — re-cleans prompts recorded by an older version |
 | Removal | `uninstall --purge` — every pblame ref, enumerated not named |
 
-217 tests. Validated across three hostile runs on a real repo.
+228 tests. Validated across four hostile runs on a real repo.
 
 ## Agreed sequence from here
 
@@ -39,9 +41,12 @@ the day-8 fixes.
 3. ✔ day 7 validation — found 7 bugs, see [day7-findings.md](day7-findings.md)
 4. ✔ fixed all 7, merged (`7065826`) — plus a regression the fixing caused
 5. ✔ day 8 verification — all 7 fixes hold; 6 new findings, none blocking
-6. ✔ fixed 5 of them (`fix/day8-findings`); the 6th is a decision, see below
-7. **→ record [the envdiff demo](day6-b-envdiff-demo.md)** (yours)
-8. then Phase 2 — the GitHub PR surface
+6. ✔ fixed 5 of them; the 6th is a decision, see the backlog
+7. ✔ [day 9](day9-fix-verification.md) — verified them on real history; found and fixed
+   three more, including a redaction gap that leaked prefixed secret keys
+8. **→ build and record the demo** — [the prompts](day6-b-envdiff-demo.md), then
+   [the manual](demo-recording-manual.md) (yours)
+9. then Phase 2 — the GitHub PR surface
 
 Dropped by decision: chasing the external tester's feedback.
 
@@ -74,5 +79,8 @@ Roughly by how much it would hurt to need it and not have it.
 ## The thing no document fixes
 
 Three phases are built and **nobody is using it, including us** — dummy_clock has not been
-touched in four weeks, and the only external tester never reported back. Step 7 above is
+touched in four weeks, and the only external tester never reported back. Step 8 above is
 the one that changes that. More features before then would be guessing.
+
+Day 9 is a small argument for the opposite view: running the tool in earnest found a
+secret-redaction gap that 219 passing tests did not. Use before build, every time.

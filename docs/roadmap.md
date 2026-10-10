@@ -104,9 +104,13 @@ Keep saying that out loud.
 4. ✔ [Day 8 verification](day8-fix-verification.md) — every fix held; 6 more
    [findings](day8-findings.md), 5 now fixed. The 6th is a deliberate non-fix:
    see [the prune decision](day8-findings.md#the-prune-decision).
-5. **[The envdiff demo](day6-b-envdiff-demo.md)** — still the only planned artifact to
-   show anyone.
-6. Phase 2.
+5. ✔ [Day 9](day9-fix-verification.md) — the day-8 fixes verified on real history from
+   the terminal, which needed no recording session. Found two reporting bugs and one
+   security gap: `DATABASE_PASSWORD=` and every other prefixed key escaped redaction.
+6. **The demo** — [the build](day6-b-envdiff-demo.md), then
+   [the recording manual](demo-recording-manual.md). Still the only planned artifact
+   to show anyone.
+7. Phase 2.
 
 Chasing the external tester was dropped by decision.
 
@@ -118,8 +122,9 @@ Chasing the external tester was dropped by decision.
   and those lead to different products. Needs the demo recorded first.
 - **Nobody is using this yet, including us.** dummy_clock has gone four weeks without a
   commit and the external tester never reported back. Three phases of engineering against
-  zero usage signal is now a larger risk than any missing feature; step 5 above is the
-  cheapest way to change that.
+  zero usage signal is now a larger risk than any missing feature; step 6 above is the
+  cheapest way to change that. Day 9 is the evidence: using the tool properly for one
+  afternoon found a redaction gap the whole test suite missed.
 - **The Go or Rust port.** The gameplan put this at milestone 2 and we skipped it.
   Distribution friction is real — the friend needed Python and a wheel — and blameprompt
   is immune by construction to the encoding bug class that cost us 26 minutes of
