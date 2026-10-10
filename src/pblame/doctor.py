@@ -17,7 +17,7 @@ from pathlib import Path
 from . import config, git_hooks, notes, staging, ui
 from .ui import plural
 from .adapters import claude_code
-from .snapshot import GitError, git, snapshot_tree
+from .snapshot import GitError, git, snapshot_tree, unreachable
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
 
@@ -54,7 +54,7 @@ def _check_agent_hooks(repo: Path) -> list[Check]:
     if not path.exists():
         return [Check(FAIL, "Claude Code hooks", f"{path.name} missing - run `pblame init`")]
     try:
-        settings = json.loads(path.read_text(encoding="utf-8"))
+        settings = json.loads(path.read_text(encoding=config.USER_TEXT))
     except (OSError, json.JSONDecodeError) as e:
         return [Check(FAIL, "Claude Code hooks", f"cannot read {path.name}: {e}")]
 
@@ -88,14 +88,14 @@ def _check_git_hooks(repo: Path) -> list[Check]:
     out = []
     for name in git_hooks.HOOKS:
         path = repo / ".git" / "hooks" / name
-        if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding="utf-8"):
+        if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding=config.USER_TEXT):
             # pre-push and post-merge only matter once sharing is on.
             optional = name in git_hooks.SHARING_HOOKS and not sharing
             out.append(Check(WARN if optional else FAIL, f"{name} hook",
                              "not installed - run `pblame init`"))
             continue
         out.append(Check(PASS, f"{name} hook", "installed"))
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding=config.USER_TEXT).splitlines():
             if "pblame" in line and line.strip().startswith('"'):
                 binary = _binary_from(line)
                 if binary and not _binary_exists(binary):
@@ -132,7 +132,7 @@ def _check_recording_works(repo: Path) -> Check:
 def _check_hook_log(repo: Path) -> Check:
     path = repo / ".git" / "pblame" / "hook.log"
     try:
-        lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [l for l in path.read_text(encoding=config.USER_TEXT).splitlines() if l.strip()]
     except OSError:
         return Check(PASS, "hook log", "empty - no hook has failed")
     if not lines:
@@ -185,6 +185,31 @@ def _check_history(repo: Path) -> list[Check]:
     except GitError:
         pass
     return out
+
+
+def _check_mirror(repo: Path) -> list[Check]:
+    """Mirror entries pointing at commits nothing references any more.
+
+    A rewrite used to leave one behind on every push, and because the mirror
+    travels, every clone inherits them and the repos then disagree on how many
+    prompts exist. Reported rather than removed: a note is not recoverable
+    once deleted, and this is the number that says whether removing them is
+    worth the risk yet.
+    """
+    shas = notes.commits_with_notes(repo, notes.SHARED_REF)
+    if not shas:
+        return []
+    try:
+        dead = unreachable(repo, shas)
+    except GitError:
+        return []
+    if not dead:
+        return [Check(PASS, "shared mirror",
+                      f"{len(shas)} commit{plural(len(shas))}, all still in history")]
+    shown = ", ".join(sorted(s[:7] for s in dead)[:3])
+    return [Check(WARN, "shared mirror",
+                  f"{len(dead)} of {len(shas)} notes point at commits a rewrite"
+                  f" left behind ({shown})")]
 
 
 def _check_secrets(repo: Path) -> list[Check]:
@@ -243,7 +268,8 @@ def run(repo: Path) -> list[Check]:
     checks = _check_agent_hooks(repo) + _check_git_hooks(repo)
     checks.append(_check_recording_works(repo))
     checks.append(_check_hook_log(repo))
-    checks += _check_staging(repo) + _check_history(repo) + _check_secrets(repo)
+    checks += (_check_staging(repo) + _check_history(repo)
+               + _check_mirror(repo) + _check_secrets(repo))
     return checks
 
 

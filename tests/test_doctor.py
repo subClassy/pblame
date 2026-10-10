@@ -152,3 +152,32 @@ def test_a_slow_snapshot_points_at_git_fsmonitor(repo, monkeypatch):
     check = next(c for c in doctor.run(repo) if c.label == "live snapshot")
     assert check.status == doctor.WARN
     assert "fsmonitor" in check.detail
+
+
+def test_mirror_entries_for_rewritten_commits_are_reported(repo):
+    """They used to accumulate silently, travel to every clone, and make two
+    repos disagree on how many prompts exist."""
+    init(repo)
+    (repo / "a.py").write_text("x\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "seed")
+    sha = run_git(repo, "rev-parse", "HEAD").strip()
+    notes.write(repo, sha, [make_receipt()], notes.SHARED_REF)
+    assert ("shared mirror", doctor.PASS) in statuses(repo)
+
+    # Rewrite with the hooks bypassed: post-rewrite now moves both refs, so
+    # this is how the orphans in a repo predating that fix came about.
+    empty = repo / ".git" / "nohooks"
+    empty.mkdir()
+    run_git(repo, "-c", f"core.hooksPath={empty}", "commit", "-q", "--amend", "-m", "amended")
+
+    assert ("shared mirror", doctor.WARN) in statuses(repo)
+    assert not failures(repo), "stale mirror notes are junk, not a broken setup"
+
+
+def test_no_mirror_means_no_mirror_check(repo):
+    init(repo)
+    (repo / "a.py").write_text("x\n")
+    run_git(repo, "add", "-A")
+    run_git(repo, "commit", "-q", "-m", "seed")
+    assert "shared mirror" not in {c.label for c in doctor.run(repo)}

@@ -167,7 +167,7 @@ def test_pull_does_not_overwrite_local_verbatim_prompts(tmp_path, repo, origin):
 
 
 def test_pull_with_no_remote_notes_is_harmless(tmp_path, repo, origin):
-    assert share.pull(repo, cfg_of(repo)) == 0
+    assert share.pull(repo, cfg_of(repo)) == share.Pulled(0, 0)
 
 
 def test_push_with_nothing_recorded_does_nothing(repo, origin):
@@ -445,3 +445,108 @@ def test_retry_keeps_a_teammates_entry_on_a_commit_we_also_changed(repo, origin)
     assert "alice's first" in shared
     assert "alice's second on the same commit" in shared
     assert "teammate's prompt" in shared, "the retry overwrote the pulled entry"
+
+
+# --- day 8: what a push reports about itself ------------------------------
+
+def test_a_successful_retry_reports_what_it_shared(repo, origin):
+    """The retry re-plans so it does not write stale lists, and push used to
+    return that second plan. By then the first attempt had already staged, so
+    a push that did share reported "Already shared"."""
+    sha = record(repo, "alice's prompt", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    # A teammate pushes first, so our next push is rejected.
+    theirs = make_receipt(text="teammate's prompt")
+    theirs.post_tree = "b" * 40
+    theirs.files = [FileChange(path="app.py", ranges=[(2, 2)])]
+    run_git(repo, "fetch", str(origin), f"+{notes.NOTES_REF}:{notes.FETCH_REF}")
+    run_git(repo, "update-ref", "refs/notes/tmp-theirs", notes.FETCH_REF)
+    notes.merge_into(repo, sha, [theirs], "refs/notes/tmp-theirs")
+    run_git(repo, "push", str(origin), f"refs/notes/tmp-theirs:{notes.NOTES_REF}")
+
+    new_sha = record(repo, "alice's second prompt", body="base\nalice\nmore\n")
+    planned = share.push(repo, cfg_of(repo))   # rejected, pulled, retried
+
+    changed = {r.prompt.text for item in planned for r in item.changed}
+    assert changed == {"alice's second prompt"}, \
+        "a retry that shared a prompt must say so"
+    assert "alice's second prompt" in {
+        r.prompt.text for r in notes.read(repo, new_sha, notes.SHARED_REF)}
+
+
+def test_the_count_is_changed_prompts_not_every_prompt_in_a_changed_note(repo, origin):
+    """A rule matching one of two prompts on a commit reported both: the count
+    summed every receipt living in a note that differed."""
+    sha = record(repo, "ticket CUST-123456 came in", body="base\nx\n")
+    other = make_receipt(text="unrelated prompt")
+    other.post_tree = "b" * 40
+    other.files = [FileChange(path="app.py", ranges=[(1, 1)])]
+    notes.merge_into(repo, sha, [other])
+    share.push(repo, cfg_of(repo))
+
+    (repo / config.FILENAME).write_text(json.dumps({"redaction": {"custom_patterns": [
+        {"pattern": r"CUST-\d{6,}", "replacement": "[REDACTED_CUSTOMER_ID]"}]}}))
+
+    planned = share.plan(repo, cfg_of(repo))
+    assert [len(p.receipts) for p in planned] == [2]
+    assert [p.is_new for p in planned] == [True]
+    assert [r.prompt.text for r in planned[0].changed] == [
+        "ticket [REDACTED_CUSTOMER_ID] came in"]
+
+
+def test_an_unchanged_push_reports_nothing_changed(repo, origin):
+    record(repo, "only prompt", body="base\nx\n")
+    share.push(repo, cfg_of(repo))
+    assert [p.changed for p in share.push(repo, cfg_of(repo))] == [[]]
+
+
+def test_push_with_nothing_recorded_says_so(repo, origin, capsys, monkeypatch):
+    """It reported "Already shared, 0 prompts on origin"."""
+    from pblame.cli import main
+    monkeypatch.chdir(repo)
+    assert main(["push"]) == 0
+    assert "Nothing recorded" in capsys.readouterr().out
+
+    # Inside `git push`, a no-op stays quiet.
+    assert main(["push", "--if-enabled"]) == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_the_total_on_the_remote_includes_a_teammates_prompts(tmp_path, repo, origin):
+    """"N on origin" counted only our own receipts, so the second developer's
+    push reported 1 prompt on a remote holding 3."""
+    record(repo, "alice's prompt", body="base\nalice\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    bob = clone(origin, tmp_path / "bob", "bob")
+    share.pull(bob, cfg_of(bob))
+    record(bob, "bob's prompt", path="bob.py", body="bob\n")
+    run_git(bob, "push", "-q", "origin", "HEAD:refs/heads/main")
+    share.push(bob, cfg_of(bob))
+
+    assert share.shared_total(bob) == 2
+    assert sum(len(p.receipts) for p in share.plan(bob, cfg_of(bob))) == 1
+
+
+def test_pull_reports_what_arrived_separately_from_what_it_holds(tmp_path, repo, origin):
+    """It only reported coverage, which read as "17 prompts came in" when one
+    had."""
+    for n in range(2):
+        record(repo, f"alice {n}", body="base\n" + "a\n" * (n + 1))
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+
+    bob = clone(origin, tmp_path / "bob", "bob")
+    first = share.pull(bob, cfg_of(bob))
+    assert first == share.Pulled(new_prompts=2, commits=2)
+
+    # Nothing changed on the remote, so nothing arrives, but coverage stands.
+    assert share.pull(bob, cfg_of(bob)) == share.Pulled(new_prompts=0, commits=2)
+
+    record(repo, "alice 2", body="base\na\na\na\n")
+    push_code(repo)
+    share.push(repo, cfg_of(repo))
+    assert share.pull(bob, cfg_of(bob)) == share.Pulled(new_prompts=1, commits=3)

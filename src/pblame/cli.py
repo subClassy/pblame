@@ -200,7 +200,7 @@ def cmd_share(args: argparse.Namespace) -> int:
 
     path = repo / config.LOCAL_FILENAME
     if args.off:
-        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw = json.loads(path.read_text(encoding=config.USER_TEXT)) if path.exists() else {}
         raw.setdefault("share", {})["enabled"] = False
         path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         ui.out.ok("Sharing off - prompts stay on this machine")
@@ -250,10 +250,17 @@ def cmd_push(args: argparse.Namespace) -> int:
         ui.err.bad(f"Push failed: {e}")
         return 1
 
-    total = sum(len(item.receipts) for item in planned)
-    fresh = [item for item in planned if item.is_new]
-    new = sum(len(item.receipts) for item in fresh)
-    secrets = sum(len(item.detections) for item in fresh)
+    if not planned:
+        # It used to report "Already shared, 0 prompts on origin".
+        if not args.if_enabled:  # a hook should not announce a no-op
+            ui.out.ok("Nothing recorded yet, so nothing to share")
+        return 0
+
+    total = share.shared_total(repo)
+    # `changed`, not every receipt in a changed note: one edited redaction
+    # rule touching two prompts was reported as four.
+    new = sum(len(item.changed) for item in planned)
+    secrets = sum(len(item.detections) for item in planned if item.is_new)
 
     if not new:
         summary = f"Already shared, {total} prompt{plural(total)} on {cfg.share.remote}"
@@ -278,15 +285,22 @@ def cmd_pull(args: argparse.Namespace) -> int:
             cfg.share.remote = args.remote
         if args.if_enabled and not cfg.share.enabled:
             return 0
-        count = share.pull(repo, cfg)
+        pulled = share.pull(repo, cfg)
     except (GitError, config.ConfigError) as e:
         ui.err.bad(f"Pull failed: {e}")
         return 1
-    summary = f"Shared history covers {count} commit{plural(count)}"
+
+    # Lead with what arrived. Reporting only the coverage read as "17 prompts
+    # came in" when one had.
+    n = pulled.new_prompts
+    summary = (f"Pulled {n} new prompt{plural(n)} from {cfg.share.remote}"
+               if n else "Up to date")
+    covered = f"{pulled.commits} commit{plural(pulled.commits)}"
     if args.if_enabled:  # running inside git pull
-        ui.out.hook(summary[0].lower() + summary[1:])
+        ui.out.hook(f"{summary[0].lower()}{summary[1:]}, shared history covers {covered}")
     else:
         ui.out.ok(summary)
+        ui.out.field("shared history", covered)
     return 0
 
 

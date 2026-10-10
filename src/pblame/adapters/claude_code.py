@@ -140,7 +140,7 @@ LOCAL_SETTINGS = "settings.local.json"
 def _read_settings(path: Path) -> dict:
     if not path.exists():
         return {}
-    text = path.read_text(encoding="utf-8")
+    text = path.read_text(encoding=config.USER_TEXT)
     return json.loads(text) if text.strip() else {}  # raises on corrupt JSON
 
 

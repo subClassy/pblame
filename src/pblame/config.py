@@ -24,6 +24,13 @@ from pathlib import Path
 FILENAME = ".pblame.json"              # committed: team-wide redaction rules
 LOCAL_FILENAME = ".pblame.local.json"  # gitignored: personal sharing choice
 
+# Encoding for any file a person might have written or edited. PowerShell 5.1
+# ('Out-File -Encoding utf8') and Notepad both prepend a UTF-8 BOM, and plain
+# "utf-8" refuses to decode one, so a hand-edited config was unreadable.
+# utf-8-sig strips a BOM when present and is identical to utf-8 when absent.
+# Writes stay plain utf-8: we never emit a BOM ourselves.
+USER_TEXT = "utf-8-sig"
+
 
 @dataclass
 class ShareConfig:
@@ -54,7 +61,7 @@ class ConfigError(RuntimeError):
 
 def _read(path: Path) -> dict:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(path.read_text(encoding=USER_TEXT))
     except (OSError, json.JSONDecodeError) as e:
         raise ConfigError(f"cannot read {path}: {e}") from e
     if not isinstance(raw, dict):
