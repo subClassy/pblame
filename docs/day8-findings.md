@@ -217,10 +217,25 @@ that no longer exists.
 **And one false positive I could not design away.** Fetch a teammate's branch, have every
 ref to it disappear locally (remote-tracking ref pruned, branch deleted) while the branch
 is still alive for them, and prune deletes their notes for it. Self-healing — their next
-push restores them — but it is churn caused by a cleanup nobody asked for.
+push restores them — but it is churn caused by a cleanup nobody asked for, and since a
+deletion propagates, it is churn every clone sees.
+
+**One thing that argues for building it: a deletion does propagate.** I had assumed a
+union merge could not express one, which would have made prune purely local and left every
+clone with its own junk forever. Tested directly, on plain git notes, and it is not so:
+
+- clone strictly behind → fast-forward, note gone.
+- clone with its own unpushed notes commit → three-way merge against the base, the
+  one-sided deletion still wins (3 notes before, 2 after).
+
+So one repo that *can* see a commit is dead prunes it, and everyone else converges on the
+next pull — which matters because the clone in finding 14 is missing the object and could
+never have decided that for itself. Nor does pblame re-add it: `plan` only stages notes it
+has a local receipt for, and a mirror-only orphan has none.
 
 **Trigger to build it:** `doctor` reporting dead notes in double figures, or a real
-complaint about a phantom prompt. Until then the warning is the whole fix.
+complaint about a phantom prompt. Until then the warning is the whole fix — but the
+blocker is appetite for an irreversible delete, not the mechanics.
 
 ## Closed
 
