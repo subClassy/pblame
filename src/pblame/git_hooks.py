@@ -4,6 +4,7 @@ already has (pattern from blameprompt, MIT)."""
 import sys
 from pathlib import Path
 
+from . import config
 from .snapshot import GitError, git
 
 MARK_START = "# pblame"
@@ -22,7 +23,7 @@ def ensure_ignored(repo: Path, rel_path: str) -> None:
 
     exclude = repo / ".git" / "info" / "exclude"
     exclude.parent.mkdir(parents=True, exist_ok=True)
-    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    existing = exclude.read_text(encoding=config.USER_TEXT) if exclude.exists() else ""
     if rel_path in existing.split():
         return
     prefix = "" if not existing or existing.endswith("\n") else "\n"
@@ -97,7 +98,7 @@ def _install(repo: Path, name: str, section: str) -> Path:
     path = hooks_dir / name
 
     if path.exists():
-        existing = path.read_text(encoding="utf-8")
+        existing = path.read_text(encoding=config.USER_TEXT)
         if MARK_START in existing:
             content = _remove_section(existing).rstrip("\n") + "\n\n" + section
         else:
@@ -119,7 +120,7 @@ def uninstall_hooks(repo: Path) -> list[Path]:
         path = repo / ".git" / "hooks" / name
         if not path.exists():
             continue
-        content = path.read_text(encoding="utf-8")
+        content = path.read_text(encoding=config.USER_TEXT)
         if MARK_START not in content:
             continue
         rest = _remove_section(content)

@@ -54,7 +54,7 @@ def _check_agent_hooks(repo: Path) -> list[Check]:
     if not path.exists():
         return [Check(FAIL, "Claude Code hooks", f"{path.name} missing - run `pblame init`")]
     try:
-        settings = json.loads(path.read_text(encoding="utf-8"))
+        settings = json.loads(path.read_text(encoding=config.USER_TEXT))
     except (OSError, json.JSONDecodeError) as e:
         return [Check(FAIL, "Claude Code hooks", f"cannot read {path.name}: {e}")]
 
@@ -88,14 +88,14 @@ def _check_git_hooks(repo: Path) -> list[Check]:
     out = []
     for name in git_hooks.HOOKS:
         path = repo / ".git" / "hooks" / name
-        if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding="utf-8"):
+        if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding=config.USER_TEXT):
             # pre-push and post-merge only matter once sharing is on.
             optional = name in git_hooks.SHARING_HOOKS and not sharing
             out.append(Check(WARN if optional else FAIL, f"{name} hook",
                              "not installed - run `pblame init`"))
             continue
         out.append(Check(PASS, f"{name} hook", "installed"))
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in path.read_text(encoding=config.USER_TEXT).splitlines():
             if "pblame" in line and line.strip().startswith('"'):
                 binary = _binary_from(line)
                 if binary and not _binary_exists(binary):
@@ -132,7 +132,7 @@ def _check_recording_works(repo: Path) -> Check:
 def _check_hook_log(repo: Path) -> Check:
     path = repo / ".git" / "pblame" / "hook.log"
     try:
-        lines = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+        lines = [l for l in path.read_text(encoding=config.USER_TEXT).splitlines() if l.strip()]
     except OSError:
         return Check(PASS, "hook log", "empty - no hook has failed")
     if not lines:

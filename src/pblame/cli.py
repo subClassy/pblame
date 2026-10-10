@@ -200,7 +200,7 @@ def cmd_share(args: argparse.Namespace) -> int:
 
     path = repo / config.LOCAL_FILENAME
     if args.off:
-        raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+        raw = json.loads(path.read_text(encoding=config.USER_TEXT)) if path.exists() else {}
         raw.setdefault("share", {})["enabled"] = False
         path.write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
         ui.out.ok("Sharing off - prompts stay on this machine")
