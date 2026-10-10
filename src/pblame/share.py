@@ -39,6 +39,10 @@ class Planned:
     detections: list = field(default_factory=list)
     desired: list = field(default_factory=list)  # the whole note to write
     is_new: bool = True  # False when the mirror already holds exactly this
+    # The subset of `receipts` the mirror does not already hold verbatim.
+    # `is_new` says whether to write the note; this says what the developer
+    # actually contributed, which is the number worth reporting.
+    changed: list = field(default_factory=list)
 
 
 def redact_receipt(receipt, cfg) -> tuple[object, list]:
@@ -80,9 +84,12 @@ def plan(repo: Path, cfg: Config) -> list[Planned]:
         ours = {r.prompt.id for r in receipts}
         desired = notes.fold([r for r in existing if r.prompt.id not in ours] + receipts)
 
+        held = {r.prompt.id: notes.signature([r]) for r in existing}
         planned.append(Planned(
             sha, receipts, detections, desired=desired,
-            is_new=notes.signature(desired) != notes.signature(existing)))
+            is_new=notes.signature(desired) != notes.signature(existing),
+            changed=[r for r in receipts
+                     if notes.signature([r]) != held.get(r.prompt.id)]))
     return planned
 
 
@@ -99,6 +106,32 @@ def stage(repo: Path, planned: list[Planned]) -> None:
             notes.write(repo, item.sha, item.desired, notes.SHARED_REF)
 
 
+@dataclass
+class Pulled:
+    """What a pull brought in, and what the mirror holds afterwards.
+
+    Both numbers, because they answer different questions and reporting only
+    the second one read as "17 prompts arrived" when one had.
+    """
+    new_prompts: int
+    commits: int
+
+
+def _prompt_ids(repo: Path, ref: str) -> set[str]:
+    return {r.prompt.id
+            for receipts in index.notes_by_commit(repo, ref).values()
+            for r in receipts}
+
+
+def shared_total(repo: Path) -> int:
+    """Distinct prompts the mirror holds — what "N on origin" means.
+
+    Counting our own planned receipts instead told the second developer their
+    push left 1 prompt on a remote that held 3.
+    """
+    return len(_prompt_ids(repo, notes.SHARED_REF))
+
+
 def _ref_exists(repo: Path, ref: str) -> bool:
     try:
         git(repo, "rev-parse", "--verify", "--quiet", ref)
@@ -107,10 +140,10 @@ def _ref_exists(repo: Path, ref: str) -> bool:
         return False
 
 
-def pull(repo: Path, cfg: Config) -> int:
-    """Fetch what others shared and merge it into the mirror. Returns the
-    number of commits the mirror now has notes for."""
+def pull(repo: Path, cfg: Config) -> Pulled:
+    """Fetch what others shared and merge it into the mirror."""
     remote = cfg.share.remote
+    before = _prompt_ids(repo, notes.SHARED_REF)
     try:
         # Force is safe here and nowhere else: FETCH_REF is our own scratch ref.
         git(repo, "fetch", remote, f"+{notes.NOTES_REF}:{notes.FETCH_REF}")
@@ -118,10 +151,10 @@ def pull(repo: Path, cfg: Config) -> int:
         # Nobody has shared anything yet — that is the normal first-pull case,
         # not a failure.
         if "couldn't find remote ref" in str(e) or "not our ref" in str(e):
-            return len(notes.commits_with_notes(repo, notes.SHARED_REF))
+            return Pulled(0, len(notes.commits_with_notes(repo, notes.SHARED_REF)))
         raise
     if not _ref_exists(repo, notes.FETCH_REF):
-        return 0
+        return Pulled(0, 0)
 
     if _ref_exists(repo, notes.SHARED_REF):
         # union is a correct merge because the payload is JSONL; a line-wise
@@ -130,7 +163,8 @@ def pull(repo: Path, cfg: Config) -> int:
             "merge", "--strategy=union", notes.FETCH_REF)
     else:
         git(repo, "update-ref", notes.SHARED_REF, notes.FETCH_REF)
-    return len(notes.commits_with_notes(repo, notes.SHARED_REF))
+    arrived = _prompt_ids(repo, notes.SHARED_REF) - before
+    return Pulled(len(arrived), len(notes.commits_with_notes(repo, notes.SHARED_REF)))
 
 
 def push(repo: Path, cfg: Config) -> list[Planned]:
@@ -157,8 +191,11 @@ def push(repo: Path, cfg: Config) -> list[Planned]:
         # write, computed against the mirror as it was *before* the pull.
         # Writing those stale lists back deleted the entries the pull had just
         # brought in, which is the failure this whole design exists to avoid.
-        planned = plan(repo, cfg)
-        stage(repo, planned)
+        #
+        # The re-plan is for staging only. It is computed after the first
+        # attempt already staged, so everything of ours looks unchanged in it,
+        # and returning it made a successful retry report "Already shared".
+        stage(repo, plan(repo, cfg))
         # --no-verify keeps this from re-entering the pre-push hook.
         git(repo, "push", "--no-verify", cfg.share.remote, refspec)
     return planned
