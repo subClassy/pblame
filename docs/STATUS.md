@@ -12,7 +12,9 @@ the day-9 verification run.
 | [day7-findings.md](day7-findings.md) | closed — 7 fixed | What the run found and how each was fixed. |
 | [day8-fix-verification.md](day8-fix-verification.md) | done (9 Oct) | Hostile verification of the seven day-7 fixes, plus the regression they caused. |
 | [day9-fix-verification.md](day9-fix-verification.md) | **done (10 Oct)** | The day-8 fixes verified on real history, by me, from the terminal. Found two more, both fixed. |
-| [demo-recording-manual.md](demo-recording-manual.md) | **done — rendered** | The demo is a script now: `vhs tools/demo.tape` re-renders it in 90s. Manual covers changing it, and hand-recording for Phase 2. |
+| [git-ai-teardown.md](git-ai-teardown.md) | **live** | The nearest competitor: what to copy in engineering and marketing, and what to keep different. |
+| [day10-findings.md](day10-findings.md) | **open — 5 findings** | From building the site. 20 is a silent failure in husky repos; 21–24 are smaller. |
+| [demo-recording-manual.md](demo-recording-manual.md) | **superseded** | The dummy_clock video. Replaced by the site and [tools/demo/](../tools/demo/README.md); its hand-recording section still applies to Phase 2. |
 | [day8-findings.md](day8-findings.md) | **5 fixed, 1 open by decision** | All 7 day-7 fixes verified. The BOM and every miscounted total are fixed; dead mirror notes are reported, not removed. |
 | [day6-b-envdiff-demo.md](day6-b-envdiff-demo.md) | **ready — yours, next** | The 20 prompts that build the demo subject. Updated 10 Oct with a secrets prompt and the search/sharing beats. |
 | [spec-sharing-redaction.md](spec-sharing-redaction.md) | delivered | Why sharing is shaped as it is. Two deviations, listed below. |
@@ -47,7 +49,17 @@ the day-9 verification run.
 8. ✔ the demo — rendered from dummy_clock's real history, as
    [a video](../tools/demo.tape) and [a page](demo-recording-manual.md#the-page).
    The envdiff build is now optional polish, not a blocker.
-9. **→ Phase 2 — the GitHub PR surface**
+9. ✔ [git-ai teardown](git-ai-teardown.md) — the nearest competitor; its founders joined
+   Codex. Its notes carry session IDs, not prompts: ours travelling in git is the line to
+   lead with.
+10. ✔ the site — real Claude Code filmed writing envdiff, an interactive blame, three
+    feature clips. Built in `site/`, previewed privately, **not yet published**: the
+    [pre-publish decisions](day10-findings.md) are yours. Pipeline in
+    [tools/demo/README.md](../tools/demo/README.md).
+11. **→ finding 20** (husky silently disables attribution) — before anyone installs from
+    the public repo
+12. then Phase 2 — the GitHub PR surface, which needs the squash-merge action from the
+    teardown first
 
 Dropped by decision: chasing the external tester's feedback.
 
