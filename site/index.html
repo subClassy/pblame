@@ -1,0 +1,578 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>pblame</title>
+<meta name="description" content="git blame, for the prompt. Every line Claude Code writes, traced to the instruction that produced it.">
+<meta property="og:title" content="pblame — git blame, for the prompt">
+<meta property="og:description" content="Every line Claude Code writes, traced to the instruction that produced it. Kept in git, redacted before it leaves your machine.">
+<meta property="og:image" content="media/hero.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+:root {
+  --paper: #f3f5f4;
+  --card: #ffffff;
+  --ink: #13171b;
+  --muted: #59646e;
+  --rule: #d9dfdc;
+  --accent: #00744a;
+  --accent-soft: #dff1e7;
+  --term: #12151b;
+  --term-fg: #d6dbe0;
+  --term-dim: #7b8691;
+  --term-rule: #262c35;
+  --term-sel: #1b2129;
+  --warn: #8d5b00;
+  --no: #a23b30;
+  --font-display: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0c0f12;
+    --card: #14181d;
+    --ink: #e6ebee;
+    --muted: #94a0aa;
+    --rule: #242a31;
+    --accent: #34e39b;
+    --accent-soft: #13261c;
+    --term: #090b0f;
+    --term-rule: #20262e;
+    --term-sel: #151a21;
+    --warn: #e0ad3b;
+    --no: #ef8178;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0c0f12;
+  --card: #14181d;
+  --ink: #e6ebee;
+  --muted: #94a0aa;
+  --rule: #242a31;
+  --accent: #34e39b;
+  --accent-soft: #13261c;
+  --term: #090b0f;
+  --term-rule: #20262e;
+  --term-sel: #151a21;
+  --warn: #e0ad3b;
+  --no: #ef8178;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 20px; }
+.prose { max-width: 64ch; }
+
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2.3rem, 6vw, 3.9rem); line-height: 1.04; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.55rem, 3vw, 2.1rem); line-height: 1.15; letter-spacing: -0.012em; }
+h3 { font-size: 1.42rem; line-height: 1.2; letter-spacing: -0.008em; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 3px; }
+a:focus-visible, button:focus-visible, video:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px;
+}
+code, kbd { font-family: var(--font-mono); font-size: 0.88em; }
+.inl { background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 4px; }
+.mono-label {
+  font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent);
+}
+
+/* top bar */
+.top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px; }
+.mark { font-family: var(--font-mono); font-weight: 500; font-size: 1.05rem; color: var(--ink); text-decoration: none; }
+.mark b { color: var(--accent); font-weight: 500; }
+.top nav { display: flex; gap: 22px; flex-wrap: wrap; }
+.top nav a { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+.top nav a:hover { color: var(--ink); }
+/* Four links wrap at phone width; the section is one scroll away anyway. */
+@media (max-width: 480px) { .top nav { gap: 16px; } .top nav .wide-only { display: none; } }
+
+/* hero */
+.hero { padding-block: 40px 28px; display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+.lede { font-size: clamp(1.08rem, 1.6vw, 1.24rem); color: var(--muted); max-width: 60ch; }
+.lede q { color: var(--ink); font-style: italic; quotes: "\201C" "\201D"; }
+.ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 6px; }
+.btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 6px;
+  font-weight: 500; font-size: 0.98rem; text-decoration: none; border: 1px solid transparent;
+}
+.btn.primary { background: var(--ink); color: var(--paper); }
+.btn.ghost { border-color: var(--rule); color: var(--ink); }
+.btn.ghost:hover { border-color: var(--muted); }
+
+/* terminal frames around every video */
+.frame {
+  background: var(--term); border: 1px solid var(--term-rule); border-radius: 10px;
+  overflow: hidden; box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 24px 60px -32px rgba(10,20,15,.45);
+}
+.frame-bar {
+  display: flex; align-items: center; gap: 6px; padding: 10px 14px;
+  border-bottom: 1px solid var(--term-rule);
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: #2c343e; flex: none; }
+.frame-title { font-family: var(--font-mono); font-size: 0.74rem; color: var(--term-dim); margin-left: 8px; }
+.frame video { display: block; width: 100%; height: auto; max-width: 100%; background: var(--term); cursor: pointer; }
+.hero-fig { margin: 0; display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.play-wrap { position: relative; }
+.play {
+  position: absolute; inset: 0; margin: auto; width: max-content; height: max-content;
+  display: inline-flex; align-items: center; gap: 10px; padding: 12px 20px; border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.18); background: rgba(9,11,15,.82); color: #f2f5f7;
+  font: 500 0.98rem var(--font-body); cursor: pointer; backdrop-filter: blur(4px);
+}
+.play:hover { background: rgba(9,11,15,.94); border-color: var(--accent); }
+.play svg { width: 14px; height: 14px; fill: currentColor; }
+.play small { color: #9aa5af; font-size: 0.82rem; }
+.caption { font-size: 0.95rem; color: var(--muted); max-width: 70ch; }
+.caption strong { color: var(--ink); font-weight: 600; }
+
+section { padding-block: 72px; }
+.section-head { display: grid; gap: 12px; margin-bottom: 30px; }
+.rule { border: 0; height: 1px; background: var(--rule); margin: 0; }
+
+/* the interactive blame */
+.stat {
+  font-family: var(--font-display); font-size: clamp(1.25rem, 2.4vw, 1.6rem); line-height: 1.3;
+  max-width: 34ch; text-wrap: balance;
+}
+.stat em { font-style: normal; color: var(--accent); font-variant-numeric: tabular-nums; }
+.blame { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 960px) { .blame { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); } }
+
+.code { background: var(--term); border: 1px solid var(--term-rule); border-radius: 10px; overflow: hidden; }
+.code-scroll { max-height: 600px; overflow: auto; overscroll-behavior: contain; padding-block: 8px; }
+.row {
+  display: grid; grid-template-columns: 4px 3.4em 1fr; align-items: stretch;
+  font-family: var(--font-mono); font-size: 0.79rem; line-height: 1.62; color: var(--term-fg);
+  cursor: pointer; transition: opacity .12s ease, background-color .12s ease;
+}
+.row .bar { background: var(--c); }
+.row .ln { color: var(--term-dim); text-align: right; padding-right: 14px; user-select: none; font-variant-numeric: tabular-nums; }
+.row code { font-size: inherit; white-space: pre; padding-right: 20px; }
+.code.has-focus .row { opacity: .38; }
+.code.has-focus .row.on { opacity: 1; background: var(--term-sel); }
+.row:hover { background: var(--term-sel); }
+
+.side { display: grid; gap: 16px; }
+@media (min-width: 960px) { .side { position: sticky; top: 20px; } }
+.card {
+  background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 20px 22px;
+  border-top: 3px solid var(--c, var(--accent));
+}
+.card .q { font-size: 1.12rem; line-height: 1.5; margin-top: 10px; overflow-wrap: anywhere; }
+.card .q::before { content: "\201C"; } .card .q::after { content: "\201D"; }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); }
+.meta b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+.legend { display: grid; gap: 4px; }
+.legend button {
+  all: unset; box-sizing: border-box; display: grid; grid-template-columns: 10px 1fr auto; gap: 12px; align-items: baseline;
+  padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; line-height: 1.4; color: var(--ink);
+}
+.legend button:hover { background: var(--accent-soft); }
+.legend button[aria-pressed="true"] { background: var(--accent-soft); }
+.legend .chip { width: 10px; height: 10px; border-radius: 2px; background: var(--c); transform: translateY(1px); }
+.legend .t { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.legend .n { font-family: var(--font-mono); font-size: 0.74rem; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hint { font-size: 0.86rem; color: var(--muted); }
+
+/* features */
+.feature { display: grid; gap: 22px 48px; grid-template-columns: minmax(0, 1fr); align-items: center; padding-block: 44px; }
+@media (min-width: 900px) { .feature { grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.5fr); } }
+.feature + .feature { border-top: 1px solid var(--rule); }
+.feature .txt { display: grid; gap: 14px; }
+.feature .txt p { color: var(--muted); }
+.feature .txt p strong { color: var(--ink); font-weight: 600; }
+.feature .note { font-size: 0.9rem; }
+
+/* how it works: a real sequence, so it is numbered */
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 0; counter-reset: s; }
+.steps li {
+  counter-increment: s; display: grid; grid-template-columns: 2.4em 1fr; gap: 6px 14px;
+  padding-block: 16px; border-top: 1px solid var(--rule);
+}
+.steps li::before {
+  content: counter(s); font-family: var(--font-mono); font-size: 0.82rem; color: var(--accent);
+  border: 1px solid var(--rule); border-radius: 4px; text-align: center; height: 1.7em; line-height: 1.6em;
+}
+.steps li p { color: var(--muted); }
+.steps li strong { color: var(--ink); font-weight: 600; }
+
+.two { display: grid; gap: 48px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+
+/* honest capabilities table */
+.caps-wrap { overflow-x: auto; }
+table.caps { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.caps td { padding: 11px 0; border-top: 1px solid var(--rule); vertical-align: top; }
+.caps td:last-child { text-align: right; white-space: nowrap; padding-left: 16px; font-family: var(--font-mono); font-size: 0.8rem; }
+.yes { color: var(--accent); } .later { color: var(--warn); } .no { color: var(--no); }
+.cost { margin-top: 18px; font-size: 0.92rem; color: var(--muted); }
+
+pre.install {
+  margin: 0; background: var(--term); color: var(--term-fg); border: 1px solid var(--term-rule);
+  border-radius: 10px; padding: 18px 20px; overflow-x: auto; font-family: var(--font-mono);
+  font-size: 0.86rem; line-height: 1.75;
+}
+pre.install .c { color: var(--term-dim); }
+pre.install .p { color: #4a5560; user-select: none; }
+
+footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; display: grid; gap: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; scroll-behavior: auto !important; }
+}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header class="top">
+    <a class="mark" href="#">p<b>blame</b></a>
+    <nav aria-label="Primary">
+      <a href="#blame">Try it</a>
+      <a class="wide-only" href="#how">How it works</a>
+      <a href="#install">Install</a>
+      <a href="https://github.com/YOUR-NAME/pblame">GitHub</a>
+    </nav>
+  </header>
+
+  <div class="hero">
+    <p class="mono-label">For Claude Code</p>
+    <h1>git blame, for the prompt.</h1>
+    <p class="lede">
+      Every line Claude Code writes is traced to the instruction that produced it. The
+      record lives in your repo as git notes, travels with your code, and is redacted
+      before it leaves your machine &mdash; so a reviewer can tell which lines were
+      specified and which came from <q>make it safer</q>.
+    </p>
+    <div class="ctas">
+      <a class="btn primary" href="#install">Install</a>
+      <a class="btn ghost" href="#blame">Try the blame &darr;</a>
+    </div>
+  </div>
+
+  <figure class="hero-fig">
+    <div class="frame">
+      <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title">C:\demo\envdiff &mdash; Claude Code, then a commit, then pblame</span></div>
+      <div class="play-wrap"><video id="hero-video" src="media/hero.mp4" poster="media/hero.jpg" muted playsinline preload="metadata" aria-label="A prompt typed into Claude Code, committed, then shown by pblame blame"></video><button class="play" id="hero-play" type="button"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 1l11 6-11 6z"/></svg>Watch it happen <small>50&nbsp;s &middot; real Claude Code</small></button></div>
+    </div>
+    <figcaption class="caption">
+      Real Claude Code, one prompt, one commit. <strong>Seven words rewrote the list that decides
+      what counts as a secret</strong> &mdash; and the blame says so, right above the prompt that
+      specified the rule properly. Waiting is sped up and marked on screen; nothing else is edited.
+    </figcaption>
+  </figure>
+</div>
+
+<section id="blame">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="mono-label">Try it</p>
+      <h2>Hover a line. Read what was asked.</h2>
+      <p class="prose" style="color:var(--muted)">
+        This is <code class="inl">envdiff.py</code> from the project in the video, exactly as
+        <code class="inl">pblame blame --json</code> reported it. Prompts are shown the way a
+        teammate sees them &mdash; after redaction.
+      </p>
+      <p class="stat" id="stat"></p>
+    </div>
+
+    <div class="blame">
+      <div class="code" id="code" role="region" aria-label="envdiff.py, annotated by prompt">
+        <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title" id="code-title">envdiff.py</span></div>
+        <div class="code-scroll" id="code-scroll"></div>
+      </div>
+      <div class="side">
+        <div class="card" id="card" aria-live="polite">
+          <p class="mono-label" id="card-label">Selected prompt</p>
+          <p class="q" id="card-q"></p>
+          <div class="meta" id="card-meta"></div>
+        </div>
+        <div>
+          <p class="hint" style="margin:0 0 8px">Every prompt behind this file, in the order it first appears:</p>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section aria-labelledby="features-h">
+  <div class="wrap">
+    <div class="section-head">
+      <p class="mono-label">What it does</p>
+      <h2 id="features-h">What it adds on top of <code class="inl">git blame</code></h2>
+    </div>
+
+    <div class="feature">
+      <div class="txt">
+        <h3>The prompt travels.<br>The secret doesn&rsquo;t.</h3>
+        <p>
+          Your own record is verbatim. When you share, a <strong>redacted copy goes out over
+          plain git</strong> &mdash; no server, no account. A teammate who pulls sees the
+          instruction behind every line, with the password and the key swapped for what
+          they were.
+        </p>
+        <p class="note">
+          Sharing stays off until each developer turns it on, from a file that is never
+          committed &mdash; nobody can switch it on for the team.
+        </p>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title">you push &middot; a teammate pulls</span></div>
+        <video src="media/travels.mp4" poster="media/travels.jpg" muted loop playsinline preload="metadata" data-inview aria-label="Your blame shows the prompt verbatim; a teammate's clone shows it with secrets redacted"></video>
+      </div>
+    </div>
+
+    <div class="feature">
+      <div class="txt">
+        <h3>Every instruction, searchable.</h3>
+        <p>
+          Search what was asked by text, file, date, model or author. In this project,
+          <strong>four prompts used the word &ldquo;make&rdquo; &mdash; and for three of them,
+          that was nearly the whole instruction.</strong>
+        </p>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title">pblame search</span></div>
+        <video src="media/search.mp4" poster="media/search.jpg" muted loop playsinline preload="metadata" data-inview aria-label="pblame search make, returning four prompts"></video>
+      </div>
+    </div>
+
+    <div class="feature">
+      <div class="txt">
+        <h3>Squash it. Rename it.<br>It still knows.</h3>
+        <p>
+          Attribution is stored against each line&rsquo;s position in the commit that wrote
+          it, so rewriting history carries it along: amends, rebases, squashes, renames.
+          <strong>This file was renamed after its prompt ran &mdash; and the prompt still names
+          the old file.</strong>
+        </p>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title">git rebase --autosquash, then a renamed file</span></div>
+        <video src="media/survives.mp4" poster="media/survives.jpg" muted loop playsinline preload="metadata" data-inview aria-label="An autosquash rebase carries both prompts onto the squashed commit; a renamed file keeps its attribution"></video>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="how">
+  <div class="wrap two">
+    <div>
+      <div class="section-head">
+        <p class="mono-label">How it works</p>
+        <h2>Four steps, all of them git.</h2>
+      </div>
+      <ol class="steps">
+        <li><div><p><strong>You prompt.</strong> A Claude Code hook snapshots the working tree before and after the turn.</p></div></li>
+        <li><div><p><strong>The difference becomes a receipt:</strong> the prompt, the model, and the exact line ranges it changed.</p></div></li>
+        <li><div><p><strong>You commit.</strong> A git hook attaches the receipts to that commit as a git note, on a ref of its own.</p></div></li>
+        <li><div><p><strong><code class="inl">pblame blame</code> joins <code class="inl">git blame</code> against those notes,</strong> so attribution follows each line through every later edit.</p></div></li>
+      </ol>
+    </div>
+
+    <div>
+      <div class="section-head">
+        <p class="mono-label">Honest limits</p>
+        <h2>What it handles, and what not yet.</h2>
+      </div>
+      <div class="caps-wrap">
+        <table class="caps">
+          <tbody>
+            <tr><td>Amend, rebase, interactive squash</td><td class="yes">handled</td></tr>
+            <tr><td>Renames &mdash; by you or by the agent</td><td class="yes">handled</td></tr>
+            <tr><td>Merge commits and partial commits</td><td class="yes">handled</td></tr>
+            <tr><td>Sharing with a team, redacted, over git</td><td class="yes">handled</td></tr>
+            <tr><td>Claude Code, terminal or VS Code</td><td class="yes">supported</td></tr>
+            <tr><td>GitHub&rsquo;s &ldquo;Squash and merge&rdquo; button</td><td class="later">planned</td></tr>
+            <tr><td><code>cherry-pick</code>, <code>reset --soft</code></td><td class="later">planned</td></tr>
+            <tr><td>Other agents: Cursor, Codex, Copilot</td><td class="later">not yet</td></tr>
+            <tr><td>Repos using husky or <code>core.hooksPath</code> &mdash; commits are not attributed</td><td class="no">fix in progress</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="cost">
+        Cost: two tree snapshots per prompt, typically under 200&nbsp;ms &mdash;
+        <code class="inl">pblame doctor</code> measures it on your repo. And about 300&nbsp;ms on
+        each <code class="inl">git commit</code>, most of it Python starting up.
+      </p>
+    </div>
+  </div>
+</section>
+
+<hr class="rule">
+
+<section id="install">
+  <div class="wrap two">
+    <div class="section-head" style="margin:0">
+      <p class="mono-label">Install</p>
+      <h2>Two minutes, then forget about it.</h2>
+      <p style="color:var(--muted)">
+        Requires Python&nbsp;3.10+, git&nbsp;2.31+ and Claude Code. Open a fresh Claude Code
+        session after <code class="inl">init</code> &mdash; hooks load when a session starts.
+      </p>
+    </div>
+    <pre class="install"><code><span class="p">$ </span>pipx install git+https://github.com/YOUR-NAME/pblame
+<span class="p">$ </span>cd your-project
+<span class="p">$ </span>pblame init .
+<span class="p">$ </span>pblame doctor          <span class="c"># must say "Recording is live"</span>
+
+<span class="c"># then, after a few prompts and a commit</span>
+<span class="p">$ </span>pblame blame src/app.py -L 40,60
+<span class="p">$ </span>pblame search "make it"</code></pre>
+  </div>
+</section>
+
+<div class="wrap">
+  <footer>
+    <p>The envdiff project on this page was written by Claude Code &mdash; and pblame attributes <span id="foot-count">all</span> of <code class="inl">envdiff.py</code> to the prompts that wrote it.</p>
+    <p>Every terminal on this page is a real recording of real commands. <a href="https://github.com/YOUR-NAME/pblame">Source on GitHub</a>.</p>
+  </footer>
+</div>
+
+<script type="application/json" id="blame-data">{"file": "envdiff.py", "lines": [{"n": 1, "t": "#!/usr/bin/env python3", "p": 0}, {"n": 2, "t": "import argparse", "p": 0}, {"n": 3, "t": "import json", "p": 1}, {"n": 4, "t": "import os", "p": 2}, {"n": 5, "t": "import re", "p": 3}, {"n": 6, "t": "import sys", "p": 0}, {"n": 7, "t": "", "p": 0}, {"n": 8, "t": "from dotenv_loader import load_env", "p": 4}, {"n": 9, "t": "", "p": 0}, {"n": 10, "t": "RED = \"\\033[31m\"", "p": 2}, {"n": 11, "t": "GREEN = \"\\033[32m\"", "p": 2}, {"n": 12, "t": "YELLOW = \"\\033[33m\"", "p": 2}, {"n": 13, "t": "CYAN = \"\\033[36m\"", "p": 5}, {"n": 14, "t": "DIM = \"\\033[2m\"", "p": 2}, {"n": 15, "t": "BOLD = \"\\033[1m\"", "p": 2}, {"n": 16, "t": "RESET = \"\\033[0m\"", "p": 2}, {"n": 17, "t": "", "p": 2}, {"n": 18, "t": "SENSITIVE_MARKERS = (", "p": 3}, {"n": 19, "t": "    \"PASSWORD\", \"PASS\", \"SECRET\", \"TOKEN\", \"KEY\",", "p": 3}, {"n": 20, "t": "    \"CREDENTIAL\", \"AUTH\", \"PRIVATE\", \"CERT\",", "p": 3}, {"n": 21, "t": ")", "p": 3}, {"n": 22, "t": "", "p": 3}, {"n": 23, "t": "# Keys come from untrusted .env files. Strip control/escape characters", "p": 3}, {"n": 24, "t": "# before printing so a crafted key can't inject terminal escape sequences", "p": 3}, {"n": 25, "t": "# (e.g. to spoof the diff output or hide a real difference).", "p": 3}, {"n": 26, "t": "_CONTROL_CHARS = re.compile(r\"[\\x00-\\x1f\\x7f]\")", "p": 3}, {"n": 27, "t": "", "p": 3}, {"n": 28, "t": "", "p": 3}, {"n": 29, "t": "def sanitize(text):", "p": 3}, {"n": 30, "t": "    return _CONTROL_CHARS.sub(\"?\", text)", "p": 3}, {"n": 31, "t": "", "p": 6}, {"n": 32, "t": "", "p": 6}, {"n": 33, "t": "def is_sensitive(key):", "p": 6}, {"n": 34, "t": "    upper = key.upper()", "p": 6}, {"n": 35, "t": "    return any(marker in upper for marker in SENSITIVE_MARKERS)", "p": 6}, {"n": 36, "t": "", "p": 6}, {"n": 37, "t": "", "p": 2}, {"n": 38, "t": "def supports_color():", "p": 2}, {"n": 39, "t": "    return sys.stdout.isatty() and not os.environ.get(\"NO_COLOR\")", "p": 2}, {"n": 40, "t": "", "p": 2}, {"n": 41, "t": "", "p": 0}, {"n": 42, "t": "_JSON_TOKEN = re.compile(", "p": 5}, {"n": 43, "t": "    r'(?P<key>\"(?:\\\\.|[^\"\\\\])*\")(?=\\s*:)'", "p": 5}, {"n": 44, "t": "    r'|(?P<string>\"(?:\\\\.|[^\"\\\\])*\")'", "p": 5}, {"n": 45, "t": "    r'|(?P<literal>true|false|null)'", "p": 5}, {"n": 46, "t": "    r'|(?P<number>-?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)'", "p": 5}, {"n": 47, "t": ")", "p": 5}, {"n": 48, "t": "", "p": 5}, {"n": 49, "t": "", "p": 5}, {"n": 50, "t": "def colorize_json(text):", "p": 5}, {"n": 51, "t": "    def repl(m):", "p": 5}, {"n": 52, "t": "        if m.group(\"key\") is not None:", "p": 5}, {"n": 53, "t": "            return f\"{CYAN}{m.group('key')}{RESET}\"", "p": 5}, {"n": 54, "t": "        if m.group(\"string\") is not None:", "p": 5}, {"n": 55, "t": "            return f\"{GREEN}{m.group('string')}{RESET}\"", "p": 5}, {"n": 56, "t": "        return f\"{YELLOW}{m.group(0)}{RESET}\"", "p": 5}, {"n": 57, "t": "", "p": 5}, {"n": 58, "t": "    return _JSON_TOKEN.sub(repl, text)", "p": 5}, {"n": 59, "t": "", "p": 5}, {"n": 60, "t": "", "p": 5}, {"n": 61, "t": "def diff_envs(first, second):", "p": 0}, {"n": 62, "t": "    only_in_first = sorted(set(first) - set(second))", "p": 0}, {"n": 63, "t": "    only_in_second = sorted(set(second) - set(first))", "p": 0}, {"n": 64, "t": "    differing = sorted(k for k in set(first) & set(second) if first[k] != second[k])", "p": 0}, {"n": 65, "t": "    return only_in_first, only_in_second, differing", "p": 0}, {"n": 66, "t": "", "p": 0}, {"n": 67, "t": "", "p": 0}, {"n": 68, "t": "def build_report(first_path, second_path, first, second, show_values=False):", "p": 1}, {"n": 69, "t": "    only_in_first, only_in_second, differing = diff_envs(first, second)", "p": 1}, {"n": 70, "t": "", "p": 1}, {"n": 71, "t": "    def value_info(env, key):", "p": 1}, {"n": 72, "t": "        info = {\"length\": len(env[key])}", "p": 1}, {"n": 73, "t": "        if show_values and not is_sensitive(key):", "p": 1}, {"n": 74, "t": "            info[\"value\"] = env[key]", "p": 1}, {"n": 75, "t": "        return info", "p": 1}, {"n": 76, "t": "", "p": 1}, {"n": 77, "t": "    return {", "p": 1}, {"n": 78, "t": "        \"first_path\": first_path,", "p": 1}, {"n": 79, "t": "        \"second_path\": second_path,", "p": 1}, {"n": 80, "t": "        \"only_in_first\": only_in_first,", "p": 1}, {"n": 81, "t": "        \"only_in_second\": only_in_second,", "p": 1}, {"n": 82, "t": "        \"differing\": [", "p": 1}, {"n": 83, "t": "            {", "p": 1}, {"n": 84, "t": "                \"key\": key,", "p": 1}, {"n": 85, "t": "                \"sensitive\": is_sensitive(key),", "p": 1}, {"n": 86, "t": "                \"first\": value_info(first, key),", "p": 1}, {"n": 87, "t": "                \"second\": value_info(second, key),", "p": 1}, {"n": 88, "t": "            }", "p": 1}, {"n": 89, "t": "            for key in differing", "p": 1}, {"n": 90, "t": "        ],", "p": 1}, {"n": 91, "t": "        \"identical\": not (only_in_first or only_in_second or differing),", "p": 1}, {"n": 92, "t": "        \"total_differences\": len(only_in_first) + len(only_in_second) + len(differing),", "p": 1}, {"n": 93, "t": "    }", "p": 1}, {"n": 94, "t": "", "p": 1}, {"n": 95, "t": "", "p": 1}, {"n": 96, "t": "def print_report(first_path, second_path, first, second, show_values=False):", "p": 7}, {"n": 97, "t": "    only_in_first, only_in_second, differing = diff_envs(first, second)", "p": 0}, {"n": 98, "t": "    color = supports_color()", "p": 2}, {"n": 99, "t": "", "p": 2}, {"n": 100, "t": "    def c(text, code):", "p": 2}, {"n": 101, "t": "        return f\"{code}{text}{RESET}\" if color else text", "p": 2}, {"n": 102, "t": "", "p": 2}, {"n": 103, "t": "    def print_section(title, code, keys):", "p": 2}, {"n": 104, "t": "        print(c(f\"{title} ({len(keys)})\", BOLD))", "p": 2}, {"n": 105, "t": "        if not keys:", "p": 2}, {"n": 106, "t": "            print(c(\"  (none)\", DIM))", "p": 2}, {"n": 107, "t": "            return", "p": 2}, {"n": 108, "t": "        for key in keys:", "p": 2}, {"n": 109, "t": "            print(c(f\"  {sanitize(key)}\", code))", "p": 3}, {"n": 110, "t": "", "p": 0}, {"n": 111, "t": "    print_section(f\"Only in {first_path}\", RED, only_in_first)", "p": 2}, {"n": 112, "t": "    print()", "p": 2}, {"n": 113, "t": "    print_section(f\"Only in {second_path}\", GREEN, only_in_second)", "p": 2}, {"n": 114, "t": "    print()", "p": 2}, {"n": 115, "t": "", "p": 0}, {"n": 116, "t": "    print(c(f\"Differing values ({len(differing)})\", BOLD))", "p": 2}, {"n": 117, "t": "    if not differing:", "p": 2}, {"n": 118, "t": "        print(c(\"  (none)\", DIM))", "p": 2}, {"n": 119, "t": "    else:", "p": 2}, {"n": 120, "t": "        for key in differing:", "p": 2}, {"n": 121, "t": "            print(c(f\"  {sanitize(key)}\", YELLOW))", "p": 3}, {"n": 122, "t": "            if show_values and not is_sensitive(key):", "p": 6}, {"n": 123, "t": "                print(f\"    {first_path}: {first[key]!r}\")", "p": 7}, {"n": 124, "t": "                print(f\"    {second_path}: {second[key]!r}\")", "p": 7}, {"n": 125, "t": "            else:", "p": 7}, {"n": 126, "t": "                suffix = \" (redacted)\" if show_values else \"\"", "p": 6}, {"n": 127, "t": "                print(f\"    {first_path}: {len(first[key])} chars{suffix}\")", "p": 6}, {"n": 128, "t": "                print(f\"    {second_path}: {len(second[key])} chars{suffix}\")", "p": 6}, {"n": 129, "t": "", "p": 0}, {"n": 130, "t": "    print()", "p": 2}, {"n": 131, "t": "    if not (only_in_first or only_in_second or differing):", "p": 2}, {"n": 132, "t": "        print(c(\"Files are identical.\", GREEN))", "p": 2}, {"n": 133, "t": "    else:", "p": 2}, {"n": 134, "t": "        total = len(only_in_first) + len(only_in_second) + len(differing)", "p": 2}, {"n": 135, "t": "        print(c(f\"{total} difference(s) found.\", BOLD))", "p": 2}, {"n": 136, "t": "", "p": 0}, {"n": 137, "t": "", "p": 0}, {"n": 138, "t": "def main():", "p": 0}, {"n": 139, "t": "    parser = argparse.ArgumentParser(description=\"Compare two .env files\")", "p": 0}, {"n": 140, "t": "    parser.add_argument(\"first\", help=\"Path to the first .env file\")", "p": 0}, {"n": 141, "t": "    parser.add_argument(\"second\", help=\"Path to the second .env file\")", "p": 0}, {"n": 142, "t": "    parser.add_argument(", "p": 7}, {"n": 143, "t": "        \"--show-values\",", "p": 7}, {"n": 144, "t": "        action=\"store_true\",", "p": 7}, {"n": 145, "t": "        help=\"Print actual values for differing keys (default: lengths only)\",", "p": 7}, {"n": 146, "t": "    )", "p": 7}, {"n": 147, "t": "    parser.add_argument(", "p": 1}, {"n": 148, "t": "        \"--json\",", "p": 1}, {"n": 149, "t": "        action=\"store_true\",", "p": 1}, {"n": 150, "t": "        help=\"Print the report as machine-readable JSON instead of text\",", "p": 1}, {"n": 151, "t": "    )", "p": 1}, {"n": 152, "t": "    args = parser.parse_args()", "p": 0}, {"n": 153, "t": "", "p": 0}, {"n": 154, "t": "    try:", "p": 0}, {"n": 155, "t": "        first = load_env(args.first)", "p": 8}, {"n": 156, "t": "        second = load_env(args.second)", "p": 8}, {"n": 157, "t": "    except OSError as e:", "p": 0}, {"n": 158, "t": "        print(f\"error: {e}\", file=sys.stderr)", "p": 0}, {"n": 159, "t": "        sys.exit(1)", "p": 0}, {"n": 160, "t": "", "p": 0}, {"n": 161, "t": "    if args.show_values:", "p": 7}, {"n": 162, "t": "        print(\"warning: --show-values prints secret values to stdout\", file=sys.stderr)", "p": 7}, {"n": 163, "t": "", "p": 7}, {"n": 164, "t": "    if args.json:", "p": 1}, {"n": 165, "t": "        report = build_report(args.first, args.second, first, second, show_values=args.show_values)", "p": 1}, {"n": 166, "t": "        text = json.dumps(report, indent=2)", "p": 5}, {"n": 167, "t": "        if supports_color():", "p": 5}, {"n": 168, "t": "            text = colorize_json(text)", "p": 5}, {"n": 169, "t": "        print(text)", "p": 5}, {"n": 170, "t": "    else:", "p": 1}, {"n": 171, "t": "        print_report(args.first, args.second, first, second, show_values=args.show_values)", "p": 1}, {"n": 172, "t": "", "p": 0}, {"n": 173, "t": "", "p": 0}, {"n": 174, "t": "if __name__ == \"__main__\":", "p": 0}, {"n": 175, "t": "    main()", "p": 0}], "prompts": [{"text": "Write envdiff.py: a command-line tool that takes two .env file paths and prints three sections - keys only in the first file, keys only in the second, and keys whose values differ. Python standard library only, with argparse and a main().", "words": 41, "model": "claude-sonnet-5", "commit": "97ee876", "when": "16 Oct 2026, 03:43 UTC", "count": 34}, {"text": "Add a --json flag that prints the same report as machine-readable JSON instead of text.", "words": 15, "model": "claude-sonnet-5", "commit": "66363ff", "when": "16 Oct 2026, 04:10 UTC", "count": 38}, {"text": "make the output nicer", "words": 4, "model": "claude-sonnet-5", "commit": "97ee876", "when": "16 Oct 2026, 03:44 UTC", "count": 38}, {"text": "this thing handles secrets, make it safer", "words": 7, "model": "claude-sonnet-5", "commit": "54d7048", "when": "16 Oct 2026, 03:57 UTC", "count": 16}, {"text": "Rename envfile.py to dotenv_loader.py and update the import in envdiff.py.", "words": 10, "model": "claude-sonnet-5", "commit": "803bf76", "when": "16 Oct 2026, 04:09 UTC", "count": 1}, {"text": "make the json output prettier", "words": 5, "model": "claude-sonnet-5", "commit": "66363ff", "when": "16 Oct 2026, 04:10 UTC", "count": 24}, {"text": "For context, my staging .env has lines like DATABASE_PASSWORD=[REDACTED_PASSWORD] and AWS_ACCESS_KEY_ID=[REDACTED_AWS_KEY] - do not put any of that in the code. Make --show-values refuse to print the value of any key whose name contains PASSWORD, SECRET, TOKEN or KEY.", "words": 39, "model": "claude-sonnet-5", "commit": "e6c706c", "when": "16 Oct 2026, 03:46 UTC", "count": 10}, {"text": "In the report never print a value. For a changed key print only the key name and the lengths of the old and new values. Missing or extra keys print the key name alone. Add a --show-values flag that opts back in and prints a warning to stderr when used.", "words": 50, "model": "claude-sonnet-5", "commit": "e6c706c", "when": "16 Oct 2026, 03:45 UTC", "count": 12}, {"text": "Move the .env parsing into envfile.py as load_env(path) -> dict[str, str]. Skip blank lines and # comments, accept an optional leading 'export ', and strip matching single or double quotes around values.", "words": 32, "model": "claude-sonnet-5", "commit": "97ee876", "when": "16 Oct 2026, 03:43 UTC", "count": 2}]}</script>
+<script>
+(function () {
+  "use strict";
+  var data = JSON.parse(document.getElementById("blame-data").textContent);
+  var prompts = data.prompts, lines = data.lines;
+  // Distinguishable on the dark code ground, in first-appearance order: the
+  // same order pblame blame assigns its terminal colours.
+  var PALETTE = ["#5fc9d8", "#6fd79a", "#ca93e8", "#e3bd63", "#7fa9f0", "#ef8178", "#f0a35e", "#4fd1b5", "#f08bb4"];
+  prompts.forEach(function (p, i) { p.color = PALETTE[i % PALETTE.length]; });
+
+  var scroll = document.getElementById("code-scroll");
+  var code = document.getElementById("code");
+  var rows = [];
+  var frag = document.createDocumentFragment();
+  lines.forEach(function (l) {
+    var row = document.createElement("div");
+    row.className = "row";
+    row.dataset.p = l.p;
+    row.style.setProperty("--c", l.p >= 0 ? prompts[l.p].color : "transparent");
+    var bar = document.createElement("span"); bar.className = "bar";
+    var ln = document.createElement("span"); ln.className = "ln"; ln.textContent = l.n;
+    var c = document.createElement("code"); c.textContent = l.t || " ";
+    row.appendChild(bar); row.appendChild(ln); row.appendChild(c);
+    frag.appendChild(row);
+    rows.push(row);
+  });
+  scroll.appendChild(frag);
+
+  // The number is computed from the data on this page, not typed in.
+  var short = 0, total = lines.length;
+  lines.forEach(function (l) { if (l.p >= 0 && prompts[l.p].words <= 7) short++; });
+  document.getElementById("stat").innerHTML =
+    "<em>" + short + "</em> of these <em>" + total + "</em> lines came from prompts of seven words or fewer.";
+  var attributed = lines.filter(function (l) { return l.p >= 0; }).length;
+  document.getElementById("foot-count").textContent = attributed === total ? "all " + total + " lines" : attributed + " lines";
+
+  var legend = document.getElementById("legend");
+  var buttons = prompts.map(function (p, i) {
+    var b = document.createElement("button");
+    b.type = "button";
+    b.setAttribute("aria-pressed", "false");
+    b.style.setProperty("--c", p.color);
+    b.innerHTML = '<span class="chip"></span><span class="t"></span><span class="n"></span>';
+    b.querySelector(".t").textContent = p.text;
+    b.querySelector(".n").textContent = p.count + (p.count === 1 ? " line" : " lines");
+    b.addEventListener("click", function () { select(i, true); });
+    legend.appendChild(b);
+    return b;
+  });
+
+  var card = document.getElementById("card");
+  var selected = -1;
+  function show(i) {
+    var p = prompts[i];
+    card.style.setProperty("--c", p.color);
+    document.getElementById("card-q").textContent = p.text;
+    var meta = document.getElementById("card-meta");
+    meta.innerHTML = "";
+    [["words", p.words], ["lines here", p.count], ["model", p.model], ["commit", p.commit], ["", p.when]].forEach(function (kv) {
+      var s = document.createElement("span");
+      if (kv[0]) { s.innerHTML = "<b></b> " + kv[0]; s.querySelector("b").textContent = kv[1]; }
+      else { s.textContent = kv[1]; }
+      meta.appendChild(s);
+    });
+    code.classList.add("has-focus");
+    rows.forEach(function (r) { r.classList.toggle("on", Number(r.dataset.p) === i); });
+  }
+  function select(i, scrollTo) {
+    selected = i;
+    buttons.forEach(function (b, j) { b.setAttribute("aria-pressed", j === i ? "true" : "false"); });
+    show(i);
+    if (scrollTo) {
+      var first = rows.find(function (r) { return Number(r.dataset.p) === i; });
+      if (first) {
+        var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        scroll.scrollTo({ top: first.offsetTop - scroll.offsetTop - 12, behavior: reduce ? "auto" : "smooth" });
+      }
+    }
+  }
+  rows.forEach(function (r) {
+    var i = Number(r.dataset.p);
+    if (i < 0) return;
+    r.addEventListener("mouseenter", function () { show(i); });
+    r.addEventListener("click", function () { select(i, false); });
+  });
+  code.addEventListener("mouseleave", function () { if (selected >= 0) show(selected); });
+
+  // Open on the prompt the video is about, scrolled so its lines are in view.
+  var start = prompts.findIndex(function (p) { return /make it safer/.test(p.text); });
+  select(start >= 0 ? start : 0, true);
+
+  // Videos rest on their result frame (the poster). The hero plays on request;
+  // the feature loops play while on screen, unless motion is unwanted.
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var hero = document.getElementById("hero-video");
+  var heroPlay = document.getElementById("hero-play");
+  heroPlay.addEventListener("click", function () {
+    heroPlay.hidden = true;
+    hero.setAttribute("controls", "");
+    hero.play();
+  });
+  hero.addEventListener("ended", function () { hero.removeAttribute("controls"); heroPlay.hidden = false; hero.load(); });
+
+  var loops = document.querySelectorAll("video[data-inview]");
+  loops.forEach(function (v) {
+    if (reduce) { v.setAttribute("controls", ""); return; }
+    v.addEventListener("click", function () { if (v.paused) v.play(); else v.pause(); });
+  });
+  if (!reduce && "IntersectionObserver" in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { e.target.play().catch(function () {}); } else { e.target.pause(); }
+      });
+    }, { threshold: 0.55 });
+    loops.forEach(function (v) { io.observe(v); });
+  }
+})();
+</script>
+
+</body>
+</html>
