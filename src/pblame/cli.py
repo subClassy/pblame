@@ -107,16 +107,36 @@ def cmd_rewrite(args: argparse.Namespace) -> int:
     """Run by the post-rewrite hook: stdin carries "<old> <new>" per line."""
     try:
         repo = repo_root(Path.cwd())
-        moved = 0
+        if args.kind == "amend" and _rebase_in_progress(repo):
+            # An autosquash applies its fixup by amending, and git reports
+            # that; then the rebase reports the same mapping again. Leaving
+            # it to the rebase means one pass and one message with the
+            # true total, rather than "carried 1" twice for two prompts.
+            return 0
+        moved, onto = 0, set()
         for line in sys.stdin.read().splitlines():
             parts = line.split()
             if len(parts) >= 2:
-                moved += notes.remap_all(repo, parts[0], parts[1])
+                carried = notes.remap_all(repo, parts[0], parts[1])
+                if carried:
+                    moved += carried
+                    onto.add(parts[1])
         if moved:
-            ui.out.hook(f"carried {moved} prompt{plural(moved)} onto the rewritten commit")
+            target = "the rewritten commit" if len(onto) == 1 else f"{len(onto)} rewritten commits"
+            ui.out.hook(f"carried {moved} prompt{plural(moved)} onto {target}")
     except Exception as e:
         ui.err.bad(f"rewrite failed: {e}")
     return 0
+
+
+def _rebase_in_progress(repo: Path) -> bool:
+    for name in ("rebase-merge", "rebase-apply"):
+        try:
+            if Path(repo / git(repo, "rev-parse", "--git-path", name)).is_dir():
+                return True
+        except GitError:
+            pass
+    return False
 
 
 def cmd_attach(args: argparse.Namespace) -> int:
@@ -489,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     attach.set_defaults(func=cmd_attach)
 
     rewrite = sub.add_parser("rewrite", help="carry notes onto rewritten commits (run by post-rewrite)")
+    rewrite.add_argument("kind", nargs="?", help="what git says rewrote them: amend or rebase")
     rewrite.set_defaults(func=cmd_rewrite)
 
     bl = sub.add_parser("blame", help="show a file annotated with the prompt behind each line")

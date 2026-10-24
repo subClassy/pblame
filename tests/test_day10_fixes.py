@@ -438,3 +438,26 @@ def test_a_limited_search_says_how_many_matched(recorded, monkeypatch, capsys):
     import json as _json
     payload = _json.loads(capsys.readouterr().out)
     assert (payload["count"], payload["matched"]) == (2, 4)
+
+
+# --- 28. one rewrite, one message -------------------------------------------
+
+def test_an_autosquash_reports_once_with_the_true_total(recorded, monkeypatch):
+    """git runs post-rewrite as 'amend' for the fixup it applies, then as
+    'rebase' with a list that repeats that mapping: two 'carried 1' lines
+    for two prompts moved."""
+    import subprocess
+    turn(recorded, "add a json flag", "a.py", "one\n")
+    commit(recorded, "json")
+    turn(recorded, "make the json prettier", "a.py", "one\ntwo\n")
+    run_git(recorded, "add", "-A")
+    run_git(recorded, "commit", "-q", "--fixup", "HEAD")
+
+    monkeypatch.setenv("GIT_SEQUENCE_EDITOR", "true")
+    out = subprocess.run(["git", "-C", str(recorded), "rebase", "-q", "-i", "--autosquash", "HEAD~2"],
+                         capture_output=True, text=True, encoding="utf-8")
+    said = [l for l in (out.stdout + out.stderr).splitlines() if "carried" in l]
+    assert len(said) == 1, said
+    assert "2 prompts" in said[0]
+    assert texts_on(recorded, git(recorded, "rev-parse", "HEAD")) == [
+        "add a json flag", "make the json prettier"]

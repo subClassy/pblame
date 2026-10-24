@@ -73,7 +73,8 @@ def _section(subcommand: str) -> str:
 #              network fetch each time.
 HOOKS = {
     "post-commit": lambda: _section("attach"),
-    "post-rewrite": lambda: _section("rewrite"),
+    # "$1" is amend or rebase: an amend inside a rebase is left to the rebase.
+    "post-rewrite": lambda: _section('rewrite "$1"'),
     "pre-push": lambda: _section("push --if-enabled"),
     "post-merge": lambda: _section("pull --if-enabled"),
 }
