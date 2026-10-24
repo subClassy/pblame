@@ -150,10 +150,41 @@ section { padding-block: 72px; }
 }
 .stat em { font-style: normal; color: var(--accent); font-variant-numeric: tabular-nums; }
 .blame { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); align-items: start; }
-@media (min-width: 960px) { .blame { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); } }
+@media (min-width: 960px) {
+  /* Side by side, the code window is exactly as tall as the column beside it:
+     the row stretches both, and the scroll area's own 175 lines are kept out of
+     the row's height (contain: size), so only the card and list decide it. */
+  .blame { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); align-items: stretch; }
+  .blame .code-scroll { height: auto; flex: 1 1 0; min-height: 0; contain: size; }
+}
 
-.code { background: var(--term); border: 1px solid var(--term-rule); border-radius: 10px; overflow: hidden; }
-.code-scroll { max-height: 600px; overflow: auto; overscroll-behavior: contain; padding-block: 8px; }
+.code {
+  background: var(--term); border: 1px solid var(--term-rule); border-radius: 10px; overflow: hidden;
+  display: flex; flex-direction: column; min-width: 0;
+}
+/* Stacked on a phone, the card and list sit below, so the code keeps its own height. */
+.code-scroll { height: min(68vh, 560px); overflow: auto; overscroll-behavior: contain; padding-block: 8px; }
+
+/* Scrollbars: thin, no arrows, quiet until touched. WebKit/Blink get the custom
+   bar; a browser without ::-webkit-scrollbar (Firefox) gets the standard thin
+   one. Blink ignores the custom bar if scrollbar-color is set, hence @supports. */
+.code-scroll::-webkit-scrollbar, pre.install::-webkit-scrollbar, .caps-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+.code-scroll::-webkit-scrollbar-track, pre.install::-webkit-scrollbar-track, .caps-wrap::-webkit-scrollbar-track { background: transparent; }
+.code-scroll::-webkit-scrollbar-corner, pre.install::-webkit-scrollbar-corner, .caps-wrap::-webkit-scrollbar-corner { background: transparent; }
+.code-scroll::-webkit-scrollbar-button, pre.install::-webkit-scrollbar-button, .caps-wrap::-webkit-scrollbar-button { display: none; }
+.code-scroll::-webkit-scrollbar-thumb, pre.install::-webkit-scrollbar-thumb {
+  background: rgba(214, 219, 224, 0.16); border-radius: 999px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+.code-scroll::-webkit-scrollbar-thumb:hover, pre.install::-webkit-scrollbar-thumb:hover {
+  background: rgba(52, 227, 155, 0.6); border: 3px solid transparent; background-clip: padding-box;
+}
+.caps-wrap::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+.caps-wrap::-webkit-scrollbar-thumb:hover { background: var(--muted); border: 3px solid transparent; background-clip: padding-box; }
+@supports not selector(::-webkit-scrollbar) {
+  .code-scroll, pre.install { scrollbar-width: thin; scrollbar-color: rgba(214, 219, 224, 0.22) transparent; }
+  .caps-wrap { scrollbar-width: thin; scrollbar-color: var(--rule) transparent; }
+}
 .row {
   display: grid; grid-template-columns: 4px 3.4em 1fr; align-items: stretch;
   font-family: var(--font-mono); font-size: 0.79rem; line-height: 1.62; color: var(--term-fg);
@@ -166,8 +197,7 @@ section { padding-block: 72px; }
 .code.has-focus .row.on { opacity: 1; background: var(--term-sel); }
 .row:hover { background: var(--term-sel); }
 
-.side { display: grid; gap: 16px; }
-@media (min-width: 960px) { .side { position: sticky; top: 20px; } }
+.side { display: grid; gap: 16px; align-content: start; }
 .card {
   background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 20px 22px;
   border-top: 3px solid var(--c, var(--accent));
