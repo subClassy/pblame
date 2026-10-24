@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>pblame</title>
-<meta name="description" content="git blame, for the prompt. Every line Claude Code writes, traced to the instruction that produced it.">
-<meta property="og:title" content="pblame — git blame, for the prompt">
-<meta property="og:description" content="Every line Claude Code writes, traced to the instruction that produced it. Kept in git, redacted before it leaves your machine.">
+<meta name="description" content="git blame, for the prompt. Every line your coding agent writes, traced to the instruction that produced it.">
+<meta property="og:title" content="pblame: git blame, for the prompt">
+<meta property="og:description" content="Every line your coding agent writes, traced to the instruction that produced it. Kept in git, redacted before it leaves your machine.">
 <meta property="og:image" content="media/hero.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -176,10 +176,14 @@ section { padding-block: 72px; }
 .card {
   background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 20px 22px;
   border-top: 3px solid var(--c, var(--accent));
+  display: flex; flex-direction: column;
 }
+/* The card is sized to its longest prompt (see sizeCard); pinning the meta row
+   to the bottom keeps it still too, whatever the length of the prompt above. */
+.card .meta { margin-top: auto; padding-top: 14px; }
 .card .q { font-size: 1.12rem; line-height: 1.5; margin-top: 10px; overflow-wrap: anywhere; }
 .card .q::before { content: "\201C"; } .card .q::after { content: "\201D"; }
-.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 14px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted); }
 .meta b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
 .legend { display: grid; gap: 4px; }
 .legend button {
@@ -251,18 +255,18 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
       <a href="#blame">Try it</a>
       <a class="wide-only" href="#how">How it works</a>
       <a href="#install">Install</a>
-      <a href="https://github.com/YOUR-NAME/pblame">GitHub</a>
+      <a href="https://github.com/subClassy/pblame">GitHub</a>
     </nav>
   </header>
 
   <div class="hero">
-    <p class="mono-label">For Claude Code</p>
+    <p class="mono-label">For AI-written code</p>
     <h1>git blame, for the prompt.</h1>
     <p class="lede">
-      Every line Claude Code writes is traced to the instruction that produced it. The
-      record lives in your repo as git notes, travels with your code, and is redacted
-      before it leaves your machine &mdash; so a reviewer can tell which lines were
-      specified and which came from <q>make it safer</q>.
+      Every line your coding agent writes is traced to the instruction that produced it.
+      The record lives in your repo as git notes, travels with your code, and is redacted
+      before it leaves your machine. So a reviewer can tell which lines were specified and
+      which came from <q>make it safer</q>.
     </p>
     <div class="ctas">
       <a class="btn primary" href="#install">Install</a>
@@ -272,12 +276,12 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
 
   <figure class="hero-fig">
     <div class="frame">
-      <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title">C:\demo\envdiff &mdash; Claude Code, then a commit, then pblame</span></div>
+      <div class="frame-bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="frame-title">C:\demo\envdiff &middot; Claude Code, then a commit, then pblame</span></div>
       <div class="play-wrap"><video id="hero-video" src="media/hero.mp4" poster="media/hero.jpg" muted playsinline preload="metadata" aria-label="A prompt typed into Claude Code, committed, then shown by pblame blame"></video><button class="play" id="hero-play" type="button"><svg viewBox="0 0 14 14" aria-hidden="true"><path d="M2 1l11 6-11 6z"/></svg>Watch it happen <small>50&nbsp;s &middot; real Claude Code</small></button></div>
     </div>
     <figcaption class="caption">
       Real Claude Code, one prompt, one commit. <strong>Seven words rewrote the list that decides
-      what counts as a secret</strong> &mdash; and the blame says so, right above the prompt that
+      what counts as a secret,</strong> and the blame says so, right above the prompt that
       specified the rule properly. Waiting is sped up and marked on screen; nothing else is edited.
     </figcaption>
   </figure>
@@ -291,7 +295,7 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
       <p class="prose" style="color:var(--muted)">
         This is <code class="inl">envdiff.py</code> from the project in the video, exactly as
         <code class="inl">pblame blame --json</code> reported it. Prompts are shown the way a
-        teammate sees them &mdash; after redaction.
+        teammate sees them, after redaction.
       </p>
       <p class="stat" id="stat"></p>
     </div>
@@ -330,13 +334,13 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
         <h3>The prompt travels.<br>The secret doesn&rsquo;t.</h3>
         <p>
           Your own record is verbatim. When you share, a <strong>redacted copy goes out over
-          plain git</strong> &mdash; no server, no account. A teammate who pulls sees the
+          plain git:</strong> no server, no account. A teammate who pulls sees the
           instruction behind every line, with the password and the key swapped for what
           they were.
         </p>
         <p class="note">
           Sharing stays off until each developer turns it on, from a file that is never
-          committed &mdash; nobody can switch it on for the team.
+          committed. Nobody can switch it on for the whole team.
         </p>
       </div>
       <div class="frame">
@@ -350,7 +354,7 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
         <h3>Every instruction, searchable.</h3>
         <p>
           Search what was asked by text, file, date, model or author. In this project,
-          <strong>four prompts used the word &ldquo;make&rdquo; &mdash; and for three of them,
+          <strong>four prompts used the word &ldquo;make&rdquo;, and for three of them,
           that was nearly the whole instruction.</strong>
         </p>
       </div>
@@ -366,7 +370,7 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
         <p>
           Attribution is stored against each line&rsquo;s position in the commit that wrote
           it, so rewriting history carries it along: amends, rebases, squashes, renames.
-          <strong>This file was renamed after its prompt ran &mdash; and the prompt still names
+          <strong>This file was renamed after its prompt ran, and the prompt still names
           the old file.</strong>
         </p>
       </div>
@@ -388,7 +392,7 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
         <h2>Four steps, all of them git.</h2>
       </div>
       <ol class="steps">
-        <li><div><p><strong>You prompt.</strong> A Claude Code hook snapshots the working tree before and after the turn.</p></div></li>
+        <li><div><p><strong>You prompt.</strong> A hook in your coding agent snapshots the working tree before and after the turn.</p></div></li>
         <li><div><p><strong>The difference becomes a receipt:</strong> the prompt, the model, and the exact line ranges it changed.</p></div></li>
         <li><div><p><strong>You commit.</strong> A git hook attaches the receipts to that commit as a git note, on a ref of its own.</p></div></li>
         <li><div><p><strong><code class="inl">pblame blame</code> joins <code class="inl">git blame</code> against those notes,</strong> so attribution follows each line through every later edit.</p></div></li>
@@ -404,20 +408,20 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
         <table class="caps">
           <tbody>
             <tr><td>Amend, rebase, interactive squash</td><td class="yes">handled</td></tr>
-            <tr><td>Renames &mdash; by you or by the agent</td><td class="yes">handled</td></tr>
+            <tr><td>Renames, by you or by the agent</td><td class="yes">handled</td></tr>
             <tr><td>Merge commits and partial commits</td><td class="yes">handled</td></tr>
             <tr><td>Sharing with a team, redacted, over git</td><td class="yes">handled</td></tr>
-            <tr><td>Claude Code, terminal or VS Code</td><td class="yes">supported</td></tr>
+            <tr><td>Claude Code, terminal or VS Code</td><td class="yes">supported today</td></tr>
             <tr><td>GitHub&rsquo;s &ldquo;Squash and merge&rdquo; button</td><td class="later">planned</td></tr>
             <tr><td><code>cherry-pick</code>, <code>reset --soft</code></td><td class="later">planned</td></tr>
-            <tr><td>Other agents: Cursor, Codex, Copilot</td><td class="later">not yet</td></tr>
-            <tr><td>Repos using husky or <code>core.hooksPath</code> &mdash; commits are not attributed</td><td class="no">fix in progress</td></tr>
+            <tr><td>Cursor, Codex, Copilot and other agents</td><td class="later">next</td></tr>
+            <tr><td>Repos using husky or <code>core.hooksPath</code>: commits are not attributed</td><td class="no">fix in progress</td></tr>
           </tbody>
         </table>
       </div>
       <p class="cost">
-        Cost: two tree snapshots per prompt, typically under 200&nbsp;ms &mdash;
-        <code class="inl">pblame doctor</code> measures it on your repo. And about 300&nbsp;ms on
+        Cost: two tree snapshots per prompt, typically under 200&nbsp;ms, which
+        <code class="inl">pblame doctor</code> measures on your repo. And about 300&nbsp;ms on
         each <code class="inl">git commit</code>, most of it Python starting up.
       </p>
     </div>
@@ -432,11 +436,12 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
       <p class="mono-label">Install</p>
       <h2>Two minutes, then forget about it.</h2>
       <p style="color:var(--muted)">
-        Requires Python&nbsp;3.10+, git&nbsp;2.31+ and Claude Code. Open a fresh Claude Code
-        session after <code class="inl">init</code> &mdash; hooks load when a session starts.
+        Requires Python&nbsp;3.10+, git&nbsp;2.31+ and a supported coding agent: Claude Code
+        today. Open a fresh agent session after <code class="inl">init</code>, because hooks
+        load when a session starts.
       </p>
     </div>
-    <pre class="install"><code><span class="p">$ </span>pipx install git+https://github.com/YOUR-NAME/pblame
+    <pre class="install"><code><span class="p">$ </span>pipx install git+https://github.com/subClassy/pblame
 <span class="p">$ </span>cd your-project
 <span class="p">$ </span>pblame init .
 <span class="p">$ </span>pblame doctor          <span class="c"># must say "Recording is live"</span>
@@ -449,8 +454,8 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
 
 <div class="wrap">
   <footer>
-    <p>The envdiff project on this page was written by Claude Code &mdash; and pblame attributes <span id="foot-count">all</span> of <code class="inl">envdiff.py</code> to the prompts that wrote it.</p>
-    <p>Every terminal on this page is a real recording of real commands. <a href="https://github.com/YOUR-NAME/pblame">Source on GitHub</a>.</p>
+    <p>The envdiff project on this page was written by Claude Code, and pblame attributes <span id="foot-count">all</span> of <code class="inl">envdiff.py</code> to the prompts that wrote it.</p>
+    <p>Every terminal on this page is a real recording of real commands. <a href="https://github.com/subClassy/pblame">Source on GitHub</a>.</p>
   </footer>
 </div>
 
@@ -541,6 +546,26 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
     r.addEventListener("click", function () { select(i, false); });
   });
   code.addEventListener("mouseleave", function () { if (selected >= 0) show(selected); });
+
+  // Size the card once, for its longest prompt. A card that fits whichever
+  // prompt it shows grows and shrinks, and the list beneath it jumps.
+  function sizeCard() {
+    card.style.minHeight = "";
+    var tallest = 0;
+    // Exact height, rounded up: offsetHeight rounds, which left the tallest
+    // prompt's card a fraction of a pixel taller than the rest.
+    prompts.forEach(function (_, i) { show(i); tallest = Math.max(tallest, card.getBoundingClientRect().height); });
+    card.style.minHeight = Math.ceil(tallest) + "px";
+    show(selected >= 0 ? selected : 0);
+  }
+  sizeCard();
+  // Heights change when the web fonts arrive and when the column changes width.
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(sizeCard);
+  var resizeTimer;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(sizeCard, 150);
+  });
 
   // Open on the prompt the video is about, scrolled so its lines are in view.
   var start = prompts.findIndex(function (p) { return /make it safer/.test(p.text); });
