@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (adapters, blame, config, doctor, git_hooks, index, notes, redact,
-               repair, searchview, share, ui)
+               repair, searchview, share, staging, ui)
 from .ui import plural
 from .snapshot import GitError, git, repo_root
 
@@ -51,6 +51,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     ui.out.plain()
     ui.out.field("Claude Code hooks", str(settings.relative_to(repo)))
     ui.out.field("git hooks", ", ".join(h.name for h in hooks))
+    override = git_hooks.hooks_path_override(repo)
+    if override:
+        ui.out.plain()
+        ui.out.note(f"core.hooksPath is {override} (husky?), so git will not run these hooks.")
+        ui.out.note("Commits are attributed at your next prompt or pblame command instead.")
     ui.out.plain()
     ui.out.note("Open a new Claude Code session - hooks load when a session starts.")
     # A fresh clone has no hooks (git never clones them) and its first pull is
@@ -102,16 +107,36 @@ def cmd_rewrite(args: argparse.Namespace) -> int:
     """Run by the post-rewrite hook: stdin carries "<old> <new>" per line."""
     try:
         repo = repo_root(Path.cwd())
-        moved = 0
+        if args.kind == "amend" and _rebase_in_progress(repo):
+            # An autosquash applies its fixup by amending, and git reports
+            # that; then the rebase reports the same mapping again. Leaving
+            # it to the rebase means one pass and one message with the
+            # true total, rather than "carried 1" twice for two prompts.
+            return 0
+        moved, onto = 0, set()
         for line in sys.stdin.read().splitlines():
             parts = line.split()
             if len(parts) >= 2:
-                moved += notes.remap_all(repo, parts[0], parts[1])
+                carried = notes.remap_all(repo, parts[0], parts[1])
+                if carried:
+                    moved += carried
+                    onto.add(parts[1])
         if moved:
-            ui.out.hook(f"carried {moved} prompt{plural(moved)} onto the rewritten commit")
+            target = "the rewritten commit" if len(onto) == 1 else f"{len(onto)} rewritten commits"
+            ui.out.hook(f"carried {moved} prompt{plural(moved)} onto {target}")
     except Exception as e:
         ui.err.bad(f"rewrite failed: {e}")
     return 0
+
+
+def _rebase_in_progress(repo: Path) -> bool:
+    for name in ("rebase-merge", "rebase-apply"):
+        try:
+            if Path(repo / git(repo, "rev-parse", "--git-path", name)).is_dir():
+                return True
+        except GitError:
+            pass
+    return False
 
 
 def cmd_attach(args: argparse.Namespace) -> int:
@@ -147,6 +172,15 @@ def _color_flags(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--no-color", action="store_true")
 
 
+def _catch_up(repo: Path) -> None:
+    """Attach anything committed while the git hooks were not running, so a
+    command reading the record sees all of it. Never fatal to the command."""
+    try:
+        notes.reconcile_now(repo)
+    except Exception as e:
+        staging.log_failure(repo, "attach", e)
+
+
 def cmd_blame(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path.cwd())
@@ -158,6 +192,7 @@ def cmd_blame(args: argparse.Namespace) -> int:
         ui.err.bad(f"{args.file} is outside the repository")
         return 1
 
+    _catch_up(repo)
     try:
         lines = blame.attribute(repo, rel)
     except GitError as e:
@@ -256,6 +291,8 @@ def cmd_push(args: argparse.Namespace) -> int:
     if args.if_enabled and not cfg.share.enabled:
         return 0  # run from a hook; sharing is off, so there is nothing to say
 
+    _catch_up(repo)
+
     if args.dry_run:
         planned = share.plan(repo, cfg)
         ui.out.plain(f"Would send to {cfg.share.remote} {notes.NOTES_REF}")
@@ -338,6 +375,7 @@ def cmd_search(args: argparse.Namespace) -> int:
     except GitError as e:
         ui.err.bad(str(e))
         return 1
+    _catch_up(repo)
 
     try:
         query = index.Query(
@@ -354,16 +392,19 @@ def cmd_search(args: argparse.Namespace) -> int:
         ui.err.bad(f"Cannot read a date from that ({e})")
         return 1
 
+    if args.path:
+        query.history = index.path_history(repo, args.path)
     entries = index.load(repo)
     hits, matcher = index.search(entries, query)
+    matched = len(hits)
     if args.limit and len(hits) > args.limit:
         hits = hits[: args.limit]
 
     if args.json:
-        print(json.dumps(index.to_json(hits), indent=2))
+        print(json.dumps(index.to_json(hits, matched), indent=2))
         return 0
 
-    print(searchview.render(hits, matcher, total=len(entries),
+    print(searchview.render(hits, matcher, total=len(entries), matched=matched,
                             color=_use_color(args)))
     return 0 if hits else 1
 
@@ -414,6 +455,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     except GitError as e:
         ui.err.bad(str(e))
         return 1
+    _catch_up(repo)
     # Merged, so a teammate's shared prompts show up and not just our own.
     receipts = notes.read_merged(repo, args.commit)
     if not receipts:
@@ -424,7 +466,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  {r.prompt.text.strip()}")
         for fc in r.files:
             spans = ", ".join(f"{s}-{e}" if s != e else str(s) for s, e in fc.ranges)
-            print(f"    {fc.path}  {spans or '(no surviving lines)'}")
+            print(f"    {fc.path}  {spans or fc.label()}")
         print()
     return 0
 
@@ -467,6 +509,7 @@ def main(argv: list[str] | None = None) -> int:
     attach.set_defaults(func=cmd_attach)
 
     rewrite = sub.add_parser("rewrite", help="carry notes onto rewritten commits (run by post-rewrite)")
+    rewrite.add_argument("kind", nargs="?", help="what git says rewrote them: amend or rebase")
     rewrite.set_defaults(func=cmd_rewrite)
 
     bl = sub.add_parser("blame", help="show a file annotated with the prompt behind each line")

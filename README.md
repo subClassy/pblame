@@ -160,11 +160,13 @@ capture (blame, search, sharing, redaction) are agent-neutral; supporting a new 
 means a capture adapter and its install step. Cursor, Codex and Copilot are next.
 
 **Does it slow anything down?**
-Two places, both measured. Each prompt costs two snapshots of the working tree, typically
-under 200 ms and about 190 ms on a 20,000-file repo; `pblame doctor` times it on yours. And
-each `git commit` gets slower by about 300 ms, because the commit hook starts Python to
-attach what was recorded (430 ms against 125 ms without it, measured on Windows). Other
-git commands are unaffected unless sharing is on.
+Two places, both measured on Windows. Each prompt costs two snapshots of the working tree,
+typically under 200 ms and about 190 ms on a 20,000-file repo; `pblame doctor` times it on
+yours. And the commit hook: a commit with nothing to attach, which is most of them, costs
+about 25 ms extra (130 ms against 105 ms without hooks), because the hook decides that
+without starting anything. A commit that carries prompts costs about 0.4 s extra, most of
+it Python starting up to attach them. Other git commands are unaffected unless sharing is
+on. If you installed pblame before this, re-run `pblame init` to get the faster hook.
 
 **What happens when I rebase, squash or amend?**
 The notes are carried onto the rewritten commits by a `post-rewrite` hook. Renames are
@@ -174,8 +176,11 @@ handled yet; see the table below.
 
 **Does it use git hooks?**
 Yes: `post-commit`, `post-rewrite`, `pre-push` and `post-merge`. They are marked
-sections, so hooks of your own survive install and uninstall. **Repos that set
-`core.hooksPath`, as husky does, are not attributed yet.** That fix is in progress.
+sections, so hooks of your own survive install and uninstall. But they are the fast path,
+not the only one. In a repo that sets `core.hooksPath`, as husky does, git never runs
+them, so pblame attaches commits at your next prompt or pblame command and follows
+amends and rebases the same way. `pblame init` and `pblame doctor` both say when this
+applies. What it cannot do there is share on `git push`; run `pblame push` yourself.
 
 **What exactly is recorded?**
 For each prompt: its text, the model, a timestamp, the session id, and the files and line
@@ -208,7 +213,7 @@ pulls can read what was asked, redacted, without a prompt server.
 | Cursor, Codex, Copilot and other agents | next |
 | GitHub's "Squash and merge" button | planned |
 | `cherry-pick`, `reset --soft` | planned |
-| Repos using husky / `core.hooksPath` | **not attributed; fix in progress** |
+| Repos using husky / `core.hooksPath` | handled, at the next prompt or pblame command |
 | Git worktrees and submodules | not yet |
 | One agent session per repo at a time | two at once overlap their snapshots |
 | A prompt that changes no file | leaves no record |

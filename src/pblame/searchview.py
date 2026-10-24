@@ -23,14 +23,14 @@ def _files(entry: Entry) -> str:
     parts = []
     for f in entry.receipt.files:
         spans = ",".join(f"{s}-{e}" if s != e else str(s) for s, e in f.ranges)
-        parts.append(f"{f.path} {spans}" if spans else f"{f.path} (removed)")
+        parts.append(f"{f.path} {spans}" if spans else f"{f.path} {f.label()}")
     # Via the symbol set, so a cp1252 console gets an ASCII separator rather
     # than a replacement character.
     return f" {ui.out.sym['sep']} ".join(parts)
 
 
 def render(hits: list[Entry], matcher: re.Pattern | None = None,
-           total: int = 0, color: bool = True) -> str:
+           total: int = 0, color: bool = True, matched: int | None = None) -> str:
     def paint(text: str, *codes: str) -> str:
         return f"{''.join(codes)}{text}{ui.RESET}" if color else text
 
@@ -57,6 +57,13 @@ def render(hits: list[Entry], matcher: re.Pattern | None = None,
                                                        placeholder=" ..."), ui.DIM))
         out.append("")
 
-    shown = f"{len(hits)} of {total} recorded prompt{ui.plural(total)}"
+    matched = len(hits) if matched is None else matched
+    # Counted from what matched, not what --limit let through: a trimmed
+    # list read "2 of 9 recorded prompts" when 4 had matched.
+    if matched > len(hits):
+        shown = (f"{len(hits)} of {matched} matches, "
+                 f"{total} recorded prompt{ui.plural(total)}")
+    else:
+        shown = f"{matched} of {total} recorded prompt{ui.plural(total)}"
     out.append("  " + paint(shown, ui.DIM))
     return "\n".join(out)

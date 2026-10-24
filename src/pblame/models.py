@@ -51,13 +51,37 @@ class PromptEvent:
 class FileChange:
     path: str
     ranges: list[tuple[int, int]]  # inclusive 1-based line ranges in the post-turn tree
+    # Why a file can have no ranges, recorded at capture because it cannot be
+    # told apart afterwards: "deleted", "renamed", "binary" or "lines_removed".
+    # Everything read "(removed)", including a file a rename had just created.
+    kind: str | None = None
+    renamed_from: str | None = None
+
+    _LABELS = {
+        "deleted": "(deleted)",
+        "binary": "(binary)",
+        "lines_removed": "(lines removed)",
+    }
+
+    def label(self) -> str:
+        """What to print when there are no line ranges to show."""
+        if self.kind == "renamed":
+            return f"(renamed from {self.renamed_from})"
+        # Recorded before kinds existed: true of every case it might be.
+        return self._LABELS.get(self.kind or "", "(no added lines)")
 
     def to_dict(self) -> dict[str, Any]:
-        return {"path": self.path, "ranges": [list(r) for r in self.ranges]}
+        d: dict[str, Any] = {"path": self.path, "ranges": [list(r) for r in self.ranges]}
+        if self.kind:  # keep ordinary notes byte-identical for older readers
+            d["kind"] = self.kind
+        if self.renamed_from:
+            d["renamed_from"] = self.renamed_from
+        return d
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> "FileChange":
-        return cls(path=d["path"], ranges=[(r[0], r[1]) for r in d["ranges"]])
+        return cls(path=d["path"], ranges=[(r[0], r[1]) for r in d["ranges"]],
+                   kind=d.get("kind"), renamed_from=d.get("renamed_from"))
 
 
 @dataclass

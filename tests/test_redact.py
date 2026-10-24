@@ -173,7 +173,9 @@ def test_doctor_warns_about_recorded_secrets(repo):
     assert "off" in checks["sharing"].detail
 
 
-def test_doctor_fails_when_a_high_severity_secret_is_shareable(repo):
+def test_doctor_only_warns_when_sharing_would_redact_the_secret(repo):
+    """Finding 22: every secret doctor can detect, push redacts with the same
+    engine, so a detected secret with sharing on is not a failure."""
     import json as _json
     from pblame import config, doctor
     from pblame.adapters import claude_code
@@ -184,8 +186,28 @@ def test_doctor_fails_when_a_high_severity_secret_is_shareable(repo):
                         "session_id": "s", "prompt": "key AKIAIOSFODNN7EXAMPLE"})
 
     checks = {c.label: c for c in doctor.run(repo)}
-    assert checks["secrets in prompts"].status == doctor.FAIL
+    assert checks["secrets in prompts"].status == doctor.WARN
+    assert "redacted on push" in checks["secrets in prompts"].detail
     assert "enabled" in checks["sharing"].detail
+
+
+def test_doctor_fails_when_a_secret_would_be_shared_unredacted(repo):
+    """The case that does deserve a failure: the team config switched off the
+    pattern that catches it, so a push would send it as typed."""
+    import json as _json
+    from pblame import config, doctor
+    from pblame.adapters import claude_code
+
+    (repo / config.LOCAL_FILENAME).write_text(_json.dumps({"share": {"enabled": True}}))
+    claude_code.install(repo)
+    claude_code.handle({"hook_event_name": "UserPromptSubmit", "cwd": str(repo),
+                        "session_id": "s", "prompt": "key AKIAIOSFODNN7EXAMPLE"})
+    (repo / config.FILENAME).write_text(_json.dumps(
+        {"redaction": {"disable_patterns": ["AWS_KEY"]}}))
+
+    checks = {c.label: c for c in doctor.run(repo)}
+    assert checks["secrets in prompts"].status == doctor.FAIL
+    assert "AWS_KEY" in checks["secrets in prompts"].detail
 
 
 def test_redact_command_prints_clean_text_and_a_summary(repo, capsys, monkeypatch):

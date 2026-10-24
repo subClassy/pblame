@@ -14,10 +14,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import config, git_hooks, notes, staging, ui
+from . import config, git_hooks, index, notes, redact, staging, ui
+from .config import RedactionConfig
 from .ui import plural
 from .adapters import claude_code
-from .snapshot import GitError, git, snapshot_tree, unreachable
+from .snapshot import GitError, snapshot_tree, unreachable
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
 
@@ -29,6 +30,10 @@ class Check:
     status: str
     label: str
     detail: str = ""
+    # What a failure here puts at risk. The headline used to call any failure
+    # "Not recording reliably", including a sharing check, when recording was
+    # fine.
+    area: str = "recording"
 
 
 def _binary_from(command: str) -> str | None:
@@ -86,13 +91,32 @@ def _check_git_hooks(repo: Path) -> list[Check]:
     except config.ConfigError:
         sharing = False
     out = []
+    override = git_hooks.hooks_path_override(repo)
+    if override:
+        # The hook files are there, but git is looking elsewhere. Saying
+        # "installed" here is how a husky repo went unattributed while this
+        # check passed. Each hook's job now happens some other way; say how.
+        instead = {
+            "post-commit": "commits are attributed at the next prompt or pblame command",
+            "post-rewrite": "amends and rebases are followed at the next prompt",
+            "pre-push": "git push will not share prompts; run `pblame push`",
+            "post-merge": "git pull will not fetch prompts; run `pblame pull`",
+        }
+        for name in git_hooks.HOOKS:
+            if name in git_hooks.SHARING_HOOKS and not sharing:
+                continue
+            out.append(Check(WARN, f"{name} hook",
+                             f"not run by git (core.hooksPath is {override}); {instead[name]}",
+                             area="sharing" if name in git_hooks.SHARING_HOOKS else "recording"))
+        return out
     for name in git_hooks.HOOKS:
         path = repo / ".git" / "hooks" / name
         if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding=config.USER_TEXT):
             # pre-push and post-merge only matter once sharing is on.
             optional = name in git_hooks.SHARING_HOOKS and not sharing
             out.append(Check(WARN if optional else FAIL, f"{name} hook",
-                             "not installed - run `pblame init`"))
+                             "not installed - run `pblame init`",
+                             area="sharing" if name in git_hooks.SHARING_HOOKS else "recording"))
             continue
         out.append(Check(PASS, f"{name} hook", "installed"))
         for line in path.read_text(encoding=config.USER_TEXT).splitlines():
@@ -232,44 +256,63 @@ def _check_secrets(repo: Path) -> list[Check]:
     try:
         cfg = config.load(repo)
     except config.ConfigError as e:
-        return [Check(FAIL, "config", str(e))]
+        return [Check(FAIL, "config", str(e), area="sharing")]
 
-    found: dict[str, str] = {}
-    prompts = 0
-    receipts = list(staging.load(repo).receipts)
+    # Every prompt once, however many commits it was split across.
+    by_id = {r.prompt.id: r for r in staging.load(repo).receipts}
     try:
-        for line in git(repo, "notes", "--ref", notes.NOTES_REF, "list").splitlines():
-            parts = line.split()
-            if len(parts) > 1:
-                receipts += notes.read(repo, parts[1])
+        for receipts in index.notes_by_commit(repo, notes.NOTES_REF).values():
+            by_id.update((r.prompt.id, r) for r in receipts)
     except GitError:
         pass
 
-    for r in receipts:
-        if r.prompt.secrets:
-            prompts += 1
-            for name, severity in r.prompt.secrets.items():
-                found.setdefault(name, severity)
+    # Scanned now, with every built-in rule, rather than trusting the scan
+    # made at capture: that one used whatever rules were on at the time, so a
+    # pattern switched off beforehand meant a key was never seen at all.
+    found: dict[str, str] = {}
+    prompts = 0
+    leaking: set[str] = set()
+    for r in by_id.values():
+        detections = redact.redact(r.prompt.text, RedactionConfig()).detections
+        if not detections:
+            continue
+        prompts += 1
+        for d in detections:
+            found.setdefault(d.name, d.severity)
+        if cfg.share.enabled:
+            # Exactly what a push would send, scanned again: anything still
+            # recognisable there would leave this machine as typed.
+            sent = redact.redact(r.prompt.text, cfg.redaction).text
+            leaking.update(d.name for d in redact.redact(sent, RedactionConfig()).detections
+                           if d.severity in ("CRITICAL", "HIGH"))
 
     out = [Check(PASS, "sharing", f"enabled, remote {cfg.share.remote}"
-                 if cfg.share.enabled else "off - prompts stay on this machine")]
+                 if cfg.share.enabled else "off - prompts stay on this machine", area="sharing")]
     if cfg.shared_tried_to_enable and not cfg.share.enabled:
         out.append(Check(WARN, "sharing",
                          f"{config.FILENAME} asks for sharing but that is yours to "
-                         f"choose - run `pblame share` to opt in"))
+                         f"choose - run `pblame share` to opt in", area="sharing"))
     if not found:
-        out.append(Check(PASS, "secrets in prompts", "none detected"))
+        out.append(Check(PASS, "secrets in prompts", "none detected", area="sharing"))
+        return out
+
+    if leaking:
+        # The one case that deserves a failure: the configured redaction lets
+        # a secret through, and sharing is on.
+        out.append(Check(FAIL, "secrets in prompts",
+                         f"a push would send {', '.join(sorted(leaking))} unredacted;"
+                         f" check disable_patterns in {config.FILENAME}", area="sharing"))
         return out
 
     worst = next((s for s in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
                   if s in found.values()), "LOW")
-    detail = f"{prompts} prompt{plural(prompts)} contain {', '.join(sorted(found))}"
-    # Only a problem if it is about to be published.
-    status = FAIL if (cfg.share.enabled and worst in ("CRITICAL", "HIGH")) else WARN
-    out.append(Check(status, "secrets in prompts", detail + f" (worst {worst})"))
+    verb = "contains" if prompts == 1 else "contain"
+    detail = f"{prompts} prompt{plural(prompts)} {verb} {', '.join(sorted(found))} (worst {worst})"
+    # Everything found here is something a push redacts: detection and
+    # redaction are the same engine. Worth knowing, not a failure.
     if cfg.share.enabled:
-        out.append(Check(PASS, "", "these are redacted on push; `pblame push --dry-run`"
-                                   " shows exactly what would be sent"))
+        detail += "; redacted on push, `pblame push --dry-run` shows what is sent"
+    out.append(Check(WARN, "secrets in prompts", detail, area="sharing"))
     return out
 
 
@@ -296,12 +339,18 @@ def render(checks: list[Check], color: bool = True) -> str:
         mark = paint(sym[marks[c.status]], codes[c.status], ui.BOLD)
         out.append(f"  {mark} {paint(c.label.ljust(width), ui.DIM)}  {c.detail}".rstrip())
 
-    failed = sum(1 for c in checks if c.status == FAIL)
+    failed = sum(1 for c in checks if c.status == FAIL and c.area == "recording")
+    shared = sum(1 for c in checks if c.status == FAIL and c.area == "sharing")
     warned = sum(1 for c in checks if c.status == WARN)
     out.append("")
     if failed:
         out.append("  " + paint(f"Not recording reliably - {failed} check"
                                 f"{'' if failed == 1 else 's'} failing", ui.RED, ui.BOLD))
+    elif shared:
+        # Recording is fine; say so, and say what is not.
+        out.append("  " + paint("Recording is live", ui.GREEN, ui.BOLD)
+                   + paint(f", {shared} sharing check{'' if shared == 1 else 's'} failing",
+                           ui.RED, ui.BOLD))
     elif warned:
         out.append("  " + paint("Recording is live", ui.GREEN, ui.BOLD)
                    + paint(f", {warned} warning{'' if warned == 1 else 's'}", ui.DIM))

@@ -23,6 +23,14 @@ LOCK_TIMEOUT = 10.0
 class StagingState:
     last_tree: str | None = None
     receipts: list[Receipt] = field(default_factory=list)
+    # prompt id -> the newest commit already checked for that receipt. A new
+    # receipt starts at HEAD when its prompt was submitted: nothing committed
+    # before the prompt can hold its work, and nothing up to here needs
+    # checking twice. Kept out of the receipt so it never reaches a note.
+    checked_to: dict[str, str] = field(default_factory=dict)
+    # HEAD as last seen by an attach pass, to notice history being rewritten
+    # while the git hooks that would have followed it did not run.
+    last_head: str | None = None
 
 
 def _dir(repo: Path) -> Path:
@@ -78,6 +86,8 @@ def load(repo: Path) -> StagingState:
     return StagingState(
         last_tree=raw.get("last_tree"),
         receipts=[Receipt.from_dict(d) for d in raw.get("receipts", [])],
+        checked_to=dict(raw.get("checked_to") or {}),
+        last_head=raw.get("last_head"),
     )
 
 
@@ -90,12 +100,32 @@ def save(repo: Path, state: StagingState) -> None:
             {
                 "last_tree": state.last_tree,
                 "receipts": [r.to_dict() for r in state.receipts],
+                # Only ids still staged: an entry outliving its receipt is noise.
+                "checked_to": {k: v for k, v in state.checked_to.items()
+                               if any(r.prompt.id == k for r in state.receipts)},
+                "last_head": state.last_head,
             },
             indent=2,
         ),
         encoding="utf-8",
     )
     os.replace(tmp, path)  # atomic, and overwrites on Windows
+
+
+def log_failure(repo: Path, where: str, error: Exception) -> None:
+    """Record a failure that was caught so the caller could carry on.
+
+    Swallowing an error to protect an agent turn is right; doing it without a
+    trace is how recording once died silently for 26 minutes. `doctor` reads
+    this file and reports it.
+    """
+    try:
+        _dir(repo).mkdir(exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with (_dir(repo) / "hook.log").open("a", encoding="utf-8") as f:
+            print(f"{stamp} {where}: {type(error).__name__}: {error}", file=f)
+    except Exception:
+        pass  # the error path must never raise
 
 
 def find_open(receipts: list[Receipt], session_id: str) -> Receipt | None:

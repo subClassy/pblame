@@ -12,7 +12,7 @@ callers noticing.
 
 import fnmatch
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -155,10 +155,13 @@ class Query:
     model: str | None = None
     author: str | None = None
     mine: bool = False  # exclude prompts that only came from the mirror
+    # (commit, name the file had then) pairs from `path_history`: how a path
+    # filter reaches prompts written before the file was renamed.
+    history: set = field(default_factory=set)
 
 
 def normalise_path(pattern: str) -> str:
-    """Accept what a shell hands over. PowerShell tab-completion produces
+    r"""Accept what a shell hands over. PowerShell tab-completion produces
     `.\styles.css`, which matched nothing until this existed."""
     cleaned = pattern.replace("\\", "/")
     while cleaned.startswith("./"):
@@ -166,10 +169,37 @@ def normalise_path(pattern: str) -> str:
     return cleaned
 
 
-def _matches_path(entry: Entry, pattern: str) -> bool:
+def path_history(repo: Path, pattern: str) -> set[tuple[str, str]]:
+    """(commit, path) for every commit that changed this file, under the name
+    the file had in that commit, following renames.
+
+    Receipts record the name at the time, which is right for blame. Matching
+    that name alone made `--path loader.py` miss every prompt written while
+    the file was envfile.py. Pairing the name with the commit keeps a new
+    file that later reuses an old name from inheriting its prompts.
+    """
+    path = normalise_path(pattern)
+    if not path or any(c in path for c in "*?["):
+        return set()  # --follow takes one literal path
+    try:
+        out = git(repo, "log", "--follow", "--name-only", "--format=commit %H", "--", path)
+    except GitError:
+        return set()
+    pairs, sha = set(), None
+    for line in out.splitlines():
+        if line.startswith("commit "):
+            sha = line[len("commit "):]
+        elif line.strip() and sha:
+            pairs.add((sha, line.strip()))
+    return pairs
+
+
+def _matches_path(entry: Entry, pattern: str, history: set) -> bool:
     pattern = normalise_path(pattern)
     for path in entry.paths:
         if fnmatch.fnmatch(path, pattern) or pattern.lower() in path.lower():
+            return True
+        if (entry.sha, path) in history:
             return True
     return False
 
@@ -184,7 +214,7 @@ def search(entries: list[Entry], query: Query) -> list[Entry]:
     for e in entries:
         if matcher and not matcher.search(e.prompt.text):
             continue
-        if query.path and not _matches_path(e, query.path):
+        if query.path and not _matches_path(e, query.path, query.history):
             continue
         if query.since and e.prompt.timestamp < query.since:
             continue
@@ -200,9 +230,11 @@ def search(entries: list[Entry], query: Query) -> list[Entry]:
     return hits, matcher
 
 
-def to_json(hits: list[Entry]) -> dict:
+def to_json(hits: list[Entry], matched: int | None = None) -> dict:
     return {
         "count": len(hits),
+        # What matched before --limit trimmed it; count is what is listed.
+        "matched": len(hits) if matched is None else matched,
         "prompts": [
             {
                 "commit": e.sha,

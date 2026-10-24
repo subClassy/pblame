@@ -437,14 +437,15 @@ footer { padding-block: 40px 64px; color: var(--muted); font-size: 0.9rem; displ
             <tr><td>GitHub&rsquo;s &ldquo;Squash and merge&rdquo; button</td><td class="later">planned</td></tr>
             <tr><td><code>cherry-pick</code>, <code>reset --soft</code></td><td class="later">planned</td></tr>
             <tr><td>Cursor, Codex, Copilot and other agents</td><td class="later">next</td></tr>
-            <tr><td>Repos using husky or <code>core.hooksPath</code>: commits are not attributed</td><td class="no">fix in progress</td></tr>
+            <tr><td>Repos using husky or <code>core.hooksPath</code>, at the next prompt</td><td class="yes">handled</td></tr>
           </tbody>
         </table>
       </div>
       <p class="cost">
         Cost: two tree snapshots per prompt, typically under 200&nbsp;ms, which
-        <code class="inl">pblame doctor</code> measures on your repo. And about 300&nbsp;ms on
-        each <code class="inl">git commit</code>, most of it Python starting up.
+        <code class="inl">pblame doctor</code> measures on your repo. A
+        <code class="inl">git commit</code> with nothing to attach pays about 25&nbsp;ms;
+        one that carries prompts about 0.4&nbsp;s, most of it Python starting up.
       </p>
     </div>
   </div>
