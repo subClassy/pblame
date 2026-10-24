@@ -158,7 +158,7 @@ class Query:
 
 
 def normalise_path(pattern: str) -> str:
-    """Accept what a shell hands over. PowerShell tab-completion produces
+    r"""Accept what a shell hands over. PowerShell tab-completion produces
     `.\styles.css`, which matched nothing until this existed."""
     cleaned = pattern.replace("\\", "/")
     while cleaned.startswith("./"):

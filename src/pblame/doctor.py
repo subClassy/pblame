@@ -18,7 +18,7 @@ from . import config, git_hooks, index, notes, redact, staging, ui
 from .config import RedactionConfig
 from .ui import plural
 from .adapters import claude_code
-from .snapshot import GitError, git, snapshot_tree, unreachable
+from .snapshot import GitError, snapshot_tree, unreachable
 
 PASS, WARN, FAIL = "pass", "warn", "fail"
 
