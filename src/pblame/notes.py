@@ -271,12 +271,120 @@ def attach_staged(repo: Path, sha: str = "HEAD") -> list[Receipt]:
             if rest and rest.files:
                 pending.append(rest)
 
+        full = git(repo, "rev-parse", sha)
         if attached:
-            merge_into(repo, git(repo, "rev-parse", sha), attached)
+            merge_into(repo, full, attached)
 
         state.receipts = pending
+        # Whatever is still waiting has now been checked against this commit.
+        for r in pending:
+            state.checked_to[r.prompt.id] = full
         staging.save(repo, state)
         return attached
+
+
+def head(repo: Path) -> str | None:
+    """HEAD's commit, or None before the first commit."""
+    try:
+        return git(repo, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    except GitError:
+        return None
+
+
+def _is_ancestor(repo: Path, a: str, b: str) -> bool:
+    try:
+        git(repo, "merge-base", "--is-ancestor", a, b)
+        return True
+    except GitError:
+        return False
+
+
+def _commits_after(repo: Path, since: str | None, head_sha: str, receipt: Receipt) -> list[str]:
+    """First-parent commits on HEAD made after `since`, oldest first.
+
+    `since` is where this receipt was last checked — at first, HEAD when its
+    prompt was submitted. If history was rewritten under it (an amend of
+    that very commit, say), the merge base is the last point both agree on.
+    """
+    if since == head_sha:
+        return []
+    base = None
+    if since:
+        if _is_ancestor(repo, since, head_sha):
+            base = since
+        else:
+            try:
+                base = git(repo, "merge-base", since, head_sha)
+            except GitError:
+                base = None
+    if base:
+        return git(repo, "rev-list", "--first-parent", "--reverse", head_sha,
+                   "--not", base).split()
+    # No anchor: a receipt staged by an older pblame, or a prompt submitted
+    # before the repo's first commit. Commit time is the best bound left.
+    after = int(receipt.prompt.timestamp.timestamp())
+    log = git(repo, "log", "--first-parent", "--format=%H %ct", "-n", "200", head_sha)
+    picked = [sha for sha, ct in (line.split() for line in log.splitlines()) if int(ct) >= after]
+    return list(reversed(picked))
+
+
+def reconcile(repo: Path, state: staging.StagingState, coords: str | None) -> dict[str, list[Receipt]]:
+    """Attach staged receipts to commits the post-commit hook never saw.
+
+    `post-commit` is the fast path, not the only one: with `core.hooksPath`
+    set — husky does it — git never runs it, and receipts waited forever
+    while `doctor` called recording healthy. So every agent event, and every
+    pblame command that reads the record, runs this too.
+
+    Each closed receipt is checked against the first-parent commits made
+    after its prompt began and not checked before; each file's part goes to
+    the oldest such commit that changed it — what post-commit would have
+    done at the time. Ranges are realigned from `coords`, the tree the
+    staged ranges are expressed in, to the commit's own tree.
+
+    Open receipts are left alone: another session may be mid-turn, and
+    closing its receipt here would cut that turn short.
+    """
+    head_sha = head(repo)
+    if head_sha is None:
+        return {}
+    changed: dict[str, set[str]] = {}
+    attached: dict[str, list[Receipt]] = {}
+    kept: list[Receipt] = []
+    for receipt in state.receipts:
+        if receipt.is_open:
+            kept.append(receipt)
+            continue
+        rest: Receipt | None = receipt
+        since = state.checked_to.get(receipt.prompt.id)
+        for sha in _commits_after(repo, since, head_sha, receipt):
+            if sha not in changed:
+                changed[sha] = commit_paths(repo, sha)
+            here, rest = _split(rest, changed[sha])
+            if here:
+                if coords:
+                    staging.apply_offsets([here], hunk_offsets(repo, coords, sha))
+                attached.setdefault(sha, []).append(here)
+            if rest is None or not rest.files:
+                break
+        if rest is not None and rest.files:
+            kept.append(rest)
+            state.checked_to[rest.prompt.id] = head_sha
+    for sha, receipts in attached.items():
+        merge_into(repo, sha, receipts)
+    state.receipts = kept
+    return attached
+
+
+def reconcile_now(repo: Path) -> None:
+    """`reconcile` for a pblame command about to read the record. Does nothing
+    in a repo pblame has never recorded in, rather than creating state there."""
+    if not (repo / ".git" / "pblame" / "staging.json").exists():
+        return
+    with staging.lock(repo):
+        state = staging.load(repo)
+        reconcile(repo, state, state.last_tree)
+        staging.save(repo, state)
 
 
 def remap(repo: Path, old_sha: str, new_sha: str, ref: str = NOTES_REF) -> int:

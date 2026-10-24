@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import (adapters, blame, config, doctor, git_hooks, index, notes, redact,
-               repair, searchview, share, ui)
+               repair, searchview, share, staging, ui)
 from .ui import plural
 from .snapshot import GitError, git, repo_root
 
@@ -147,6 +147,15 @@ def _color_flags(parser: argparse.ArgumentParser) -> None:
     group.add_argument("--no-color", action="store_true")
 
 
+def _catch_up(repo: Path) -> None:
+    """Attach anything committed while the git hooks were not running, so a
+    command reading the record sees all of it. Never fatal to the command."""
+    try:
+        notes.reconcile_now(repo)
+    except Exception as e:
+        staging.log_failure(repo, "attach", e)
+
+
 def cmd_blame(args: argparse.Namespace) -> int:
     try:
         repo = repo_root(Path.cwd())
@@ -158,6 +167,7 @@ def cmd_blame(args: argparse.Namespace) -> int:
         ui.err.bad(f"{args.file} is outside the repository")
         return 1
 
+    _catch_up(repo)
     try:
         lines = blame.attribute(repo, rel)
     except GitError as e:
@@ -256,6 +266,8 @@ def cmd_push(args: argparse.Namespace) -> int:
     if args.if_enabled and not cfg.share.enabled:
         return 0  # run from a hook; sharing is off, so there is nothing to say
 
+    _catch_up(repo)
+
     if args.dry_run:
         planned = share.plan(repo, cfg)
         ui.out.plain(f"Would send to {cfg.share.remote} {notes.NOTES_REF}")
@@ -338,6 +350,7 @@ def cmd_search(args: argparse.Namespace) -> int:
     except GitError as e:
         ui.err.bad(str(e))
         return 1
+    _catch_up(repo)
 
     try:
         query = index.Query(
@@ -414,6 +427,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     except GitError as e:
         ui.err.bad(str(e))
         return 1
+    _catch_up(repo)
     # Merged, so a teammate's shared prompts show up and not just our own.
     receipts = notes.read_merged(repo, args.commit)
     if not receipts:

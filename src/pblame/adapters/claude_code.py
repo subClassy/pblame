@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import config, git_hooks, redact, staging
+from .. import config, git_hooks, notes, redact, staging
 from ..models import FileChange, PromptEvent, Receipt
 from ..snapshot import (
     diff_hunks,
@@ -54,6 +54,12 @@ def handle(payload: dict) -> None:
         state = staging.load(repo)
         tree = snapshot_tree(repo)
 
+        if event == "UserPromptSubmit":
+            # Commits made since the last event, possibly with no git hook
+            # running at all. Before realignment: the staged ranges are still
+            # in last_tree's coordinates, which is what attaching needs.
+            _reconcile(repo, state, state.last_tree)
+
         # Everything since the last snapshot (this turn, or a human gap) may
         # have moved lines or whole files under older staged receipts —
         # realign them exactly once.
@@ -66,10 +72,15 @@ def handle(payload: dict) -> None:
             # (interrupt or crash): close it at this boundary instead.
             _close(repo, state.receipts, payload, tree)
             text = clean_prompt(payload.get("prompt", ""))
+            prompt_id = uuid.uuid4().hex
+            # Nothing committed before this prompt can hold its work.
+            submitted_at = notes.head(repo)
+            if submitted_at:
+                state.checked_to[prompt_id] = submitted_at
             state.receipts.append(
                 Receipt(
                     prompt=PromptEvent(
-                        id=uuid.uuid4().hex,
+                        id=prompt_id,
                         text=text,
                         model="",
                         timestamp=datetime.now(timezone.utc),
@@ -81,9 +92,22 @@ def handle(payload: dict) -> None:
             )
         else:  # Stop
             _close(repo, state.receipts, payload, tree)
+            # Agents commit too, mid-turn. Only now is this receipt closed and
+            # able to attach to that commit; its ranges are in `tree`'s terms.
+            _reconcile(repo, state, tree)
 
         state.last_tree = tree
         staging.save(repo, state)
+
+
+def _reconcile(repo: Path, state: staging.StagingState, coords: str | None) -> None:
+    """Attaching is a side job of recording. If it fails, log it and let the
+    turn be recorded anyway: losing an attach is recoverable, losing the
+    receipt is not."""
+    try:
+        notes.reconcile(repo, state, coords)
+    except Exception as e:
+        staging.log_failure(repo, "attach", e)
 
 
 def _scan_secrets(repo: Path, text: str) -> dict[str, str]:
