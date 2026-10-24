@@ -39,7 +39,7 @@ def own_binary() -> str:
     return "pblame"  # fall back to PATH
 
 
-def _section(subcommand: str) -> str:
+def _section(subcommand: str, guard: str = "") -> str:
     """One marker-fenced hook body running `pblame <subcommand>`.
 
     Hooks run under git's sh even on Windows, so forward slashes are fine. The
@@ -49,13 +49,34 @@ def _section(subcommand: str) -> str:
     working where `.git` is a file rather than a directory.
     """
     exe = own_binary().replace("\\", "/")
+    body = ('mkdir -p "$PBLAME_DIR" 2>/dev/null || true\n'
+            f'"{exe}" {subcommand} 2>>"$PBLAME_DIR/hook.log" || true')
+    if guard:
+        body = f'{guard}if [ -n "$staged" ]; then\n' + _indent(body) + "\nfi"
     return (
         f"{MARK_START}\n"
         'PBLAME_DIR="${GIT_DIR:-.git}/pblame"\n'
-        'mkdir -p "$PBLAME_DIR" 2>/dev/null || true\n'
-        f'"{exe}" {subcommand} 2>>"$PBLAME_DIR/hook.log" || true\n'
+        f"{body}\n"
         f"{MARK_END}\n"
     )
+
+
+def _indent(text: str) -> str:
+    return "\n".join("  " + line for line in text.splitlines())
+
+
+# Most commits have no prompt waiting to attach (a person committing their own
+# work), and on Windows every process a hook starts costs 20-40 ms: Python
+# ~250 ms, grep and mkdir each a few dozen. So "is anything staged?" is decided
+# with shell builtins alone, and nothing is started unless the answer is yes.
+# A staged receipt always has a "prompt" key.
+_SOMETHING_STAGED = """staged=
+if [ -f "$PBLAME_DIR/staging.json" ]; then
+  while IFS= read -r line; do
+    case $line in *'"prompt"'*) staged=1; break ;; esac
+  done < "$PBLAME_DIR/staging.json"
+fi
+"""
 
 
 # post-commit  attach staged receipts to the commit just made.
@@ -72,7 +93,7 @@ def _section(subcommand: str) -> str:
 #              regardless — and hooking every branch switch would mean a
 #              network fetch each time.
 HOOKS = {
-    "post-commit": lambda: _section("attach"),
+    "post-commit": lambda: _section("attach", guard=_SOMETHING_STAGED),
     # "$1" is amend or rebase: an amend inside a rebase is left to the rebase.
     "post-rewrite": lambda: _section('rewrite "$1"'),
     "pre-push": lambda: _section("push --if-enabled"),

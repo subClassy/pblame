@@ -478,3 +478,24 @@ def test_a_slice_starting_on_a_blank_line_gives_it_no_header(recorded):
     text = blame.render(lines, "a.py:2,3", color=False)
     assert "first prompt" not in text, text
     assert text.count("second prompt") == 1
+
+
+# --- 27. a commit with nothing to attach should not start Python ----------
+
+def test_post_commit_starts_pblame_only_when_something_is_staged(repo, monkeypatch, tmp_path):
+    """Starting Python costs ~250 ms on Windows, and most commits have no
+    prompt waiting: a person committing their own work."""
+    fake = tmp_path / "fake-pblame"
+    marker = tmp_path / "ran"
+    fake.write_text(f'#!/bin/sh\necho "$@" >> "{marker.as_posix()}"\n', newline="\n")
+    fake.chmod(0o755)
+    monkeypatch.setattr(git_hooks, "own_binary", lambda: str(fake))
+    git_hooks.install_hooks(repo)
+
+    (repo / "a.txt").write_text("a\n")
+    commit(repo, "nothing staged")
+    assert not marker.exists(), "pblame ran with nothing to attach"
+
+    turn(repo, "write b", "b.txt", "b\n")
+    commit(repo, "something staged")
+    assert marker.exists() and "attach" in marker.read_text()
