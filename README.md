@@ -1,10 +1,10 @@
 # pblame
 
-**git blame, for the prompt.** Every line Claude Code writes is traced to the instruction
-that produced it — kept in your repo as git notes, travelling with your code, redacted
-before it leaves your machine.
+**git blame, for the prompt.** Every line your coding agent writes is traced to the
+instruction that produced it. The record is kept in your repo as git notes, travels with
+your code, and is redacted before it leaves your machine.
 
-**Just prompt and commit** — no workflow changes. Then ask any line what it was asked for:
+**Just prompt and commit.** No workflow changes. Then ask any line what it was asked for:
 
 ```
 $ pblame blame envdiff.py -L 18,35
@@ -41,17 +41,18 @@ envdiff.py:18,35  18/18 lines from 2 prompt(s)
 
 That is real output, from a teammate's clone. The list that decides what counts as a
 secret was last rewritten by a seven-word prompt; the precise rule it rests on sits three
-lines below. The teammate sees both — with the author's password and key redacted.
+lines below. The teammate sees both, with the author's password and key redacted.
 
-**[See it happen →](__SITE__)** real Claude Code, one prompt, one commit, and an
-interactive blame of the whole file.
+**[See it happen →](https://subclassy.github.io/pblame/)** A real agent session, one
+prompt, one commit, and an interactive blame of the whole file.
 
 ## Install
 
-Requires Python 3.10+, git 2.31+, and Claude Code (terminal or VS Code).
+Requires Python 3.10+, git 2.31+, and a supported coding agent. Today that is Claude
+Code, in the terminal or VS Code; other agents are next.
 
 ```
-pipx install git+__REPO__
+pipx install git+https://github.com/subClassy/pblame
 ```
 
 Then, in each repo you want recorded:
@@ -62,9 +63,9 @@ pblame init .
 pblame doctor          # must say "Recording is live"
 ```
 
-**Open a fresh Claude Code session after `init`** — hooks load when a session starts.
-`init` writes two Claude Code hooks into `.claude/settings.local.json` (personal,
-gitignored) and four git hooks. Existing hooks and settings are kept, not replaced.
+**Open a fresh agent session after `init`**, because hooks load when a session starts.
+`init` writes two agent hooks into `.claude/settings.local.json` (personal, gitignored)
+and four git hooks. Existing hooks and settings are kept, not replaced.
 
 ## Our choices
 
@@ -117,7 +118,7 @@ a repo with thousands of recorded commits.
 Off by default. Nothing leaves your machine until you say so:
 
 ```
-pblame share                 # opt in — writes .pblame.local.json, gitignored
+pblame share                 # opt in: writes .pblame.local.json, gitignored
 pblame push --dry-run        # exactly what would be sent, sent nowhere
 pblame push                  # send it
 ```
@@ -127,8 +128,8 @@ teammate runs `pblame init` then `pblame pull` once.
 
 Redacted on the way out: API keys, AWS/GitHub/Slack tokens, private keys, JWTs, bearer
 tokens, `*_PASSWORD=` and `*_SECRET=` values, emails, home-directory paths, and anything
-with enough entropy to look like a secret. Keyed patterns keep the key and drop the value —
-that a password was set is useful, the value is not.
+with enough entropy to look like a secret. Keyed patterns keep the key and drop the value,
+because that a password was set is useful and the value is not.
 
 Redaction rules are team-wide and committed; whether *you* share is personal and not:
 
@@ -153,28 +154,33 @@ secret appeared twice without learning it.
 
 ## FAQ
 
+**Which agents does it work with?**
+Claude Code today, in the terminal and in VS Code. The record format and everything after
+capture (blame, search, sharing, redaction) are agent-neutral; supporting a new agent
+means a capture adapter and its install step. Cursor, Codex and Copilot are next.
+
 **Does it slow anything down?**
-Two places, both measured. Each prompt costs two snapshots of the working tree —
-typically under 200 ms, about 190 ms on a 20,000-file repo; `pblame doctor` times it on
-yours. And each `git commit` gets slower by about 300 ms, because the commit hook starts
-Python to attach what was recorded (430 ms against 125 ms without it, measured on
-Windows). Other git commands are unaffected unless sharing is on.
+Two places, both measured. Each prompt costs two snapshots of the working tree, typically
+under 200 ms and about 190 ms on a 20,000-file repo; `pblame doctor` times it on yours. And
+each `git commit` gets slower by about 300 ms, because the commit hook starts Python to
+attach what was recorded (430 ms against 125 ms without it, measured on Windows). Other
+git commands are unaffected unless sharing is on.
 
 **What happens when I rebase, squash or amend?**
 The notes are carried onto the rewritten commits by a `post-rewrite` hook. Renames are
 followed too: attribution is stored against each line's position in the commit that wrote
 it, so `git blame` does the tracking. Server-side "Squash and merge" on GitHub is not
-handled yet — see the table below.
+handled yet; see the table below.
 
 **Does it use git hooks?**
-Yes — `post-commit`, `post-rewrite`, `pre-push`, `post-merge`. They are marked sections,
-so hooks of your own survive install and uninstall. **Repos that set `core.hooksPath`,
-as husky does, are not attributed yet**; that fix is in progress.
+Yes: `post-commit`, `post-rewrite`, `pre-push` and `post-merge`. They are marked
+sections, so hooks of your own survive install and uninstall. **Repos that set
+`core.hooksPath`, as husky does, are not attributed yet.** That fix is in progress.
 
 **What exactly is recorded?**
 For each prompt: its text, the model, a timestamp, the session id, and the files and line
 ranges the turn changed. No responses, no tool calls, no token counts. Edits you make by
-hand between prompts stay unattributed — they are yours.
+hand between prompts stay unattributed, because they are yours.
 
 **Can my teammates see my prompts?**
 Only if you run `pblame share`, and then only the redacted copy. Whoever can read the
@@ -185,26 +191,26 @@ repo can read what was shared; there is no per-person access control.
 pblame ref too. Either way your own hooks and settings are left as they were.
 
 **How is this different from git-ai?**
-[git-ai](https://github.com/git-ai-project/git-ai) tracks 14 agents and reports how much
-of your code AI wrote. Its notes carry session identifiers, and the prompts themselves are
-stored outside git. pblame supports one agent, and its notes carry the prompt — so a
-teammate who pulls can read what was asked, redacted, without a prompt server.
+[git-ai](https://github.com/git-ai-project/git-ai) supports many agents and reports how
+much of your code AI wrote. Its notes carry session identifiers, and the prompts
+themselves are stored outside git. pblame's notes carry the prompt, so a teammate who
+pulls can read what was asked, redacted, without a prompt server.
 
 ## What it handles
 
 | | |
 |---|---|
 | Amend, rebase, interactive squash | handled |
-| Renames — by you or by the agent | handled |
+| Renames, by you or by the agent | handled |
 | Merge commits, partial commits | handled |
 | Sharing with a team, redacted, over git | handled |
-| Claude Code, terminal or VS Code | supported |
+| Claude Code, terminal or VS Code | supported today |
+| Cursor, Codex, Copilot and other agents | next |
 | GitHub's "Squash and merge" button | planned |
 | `cherry-pick`, `reset --soft` | planned |
-| Cursor, Codex, Copilot | not yet |
-| Repos using husky / `core.hooksPath` | **not attributed — fix in progress** |
+| Repos using husky / `core.hooksPath` | **not attributed; fix in progress** |
 | Git worktrees and submodules | not yet |
-| One Claude Code session per repo at a time | two at once overlap their snapshots |
+| One agent session per repo at a time | two at once overlap their snapshots |
 | A prompt that changes no file | leaves no record |
 
 Everyone sharing a repo needs a similar pblame version: notes from this version read as
@@ -218,5 +224,4 @@ See [NOTICE](NOTICE).
 
 ## License
 
-<!-- TODO before publishing: choose a license and add LICENSE. -->
-Not yet chosen.
+[MIT](LICENSE)
