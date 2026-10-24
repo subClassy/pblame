@@ -83,6 +83,26 @@ HOOKS = {
 SHARING_HOOKS = frozenset({"pre-push", "post-merge"})
 
 
+def hooks_path_override(repo: Path) -> str | None:
+    """core.hooksPath, when it sends git somewhere other than .git/hooks.
+
+    husky sets it. git then never runs anything in .git/hooks, so the hooks
+    installed there are inert — and for a long time nothing said so.
+    """
+    try:
+        active = Path(git(repo, "rev-parse", "--git-path", "hooks"))
+    except GitError:
+        return None
+    if not active.is_absolute():
+        active = repo / active
+    if active.resolve() == (repo / ".git" / "hooks").resolve():
+        return None
+    try:
+        return git(repo, "config", "--get", "core.hooksPath")
+    except GitError:
+        return str(active)
+
+
 def install_hooks(repo: Path) -> list[Path]:
     """Install every pblame git hook, preserving any hooks already there."""
     return [_install(repo, name, section()) for name, section in HOOKS.items()]

@@ -348,6 +348,9 @@ def reconcile(repo: Path, state: staging.StagingState, coords: str | None) -> di
     head_sha = head(repo)
     if head_sha is None:
         return {}
+    if state.last_head and state.last_head != head_sha:
+        _follow_rewrites(repo, state.last_head, head_sha)
+    state.last_head = head_sha
     changed: dict[str, set[str]] = {}
     attached: dict[str, list[Receipt]] = {}
     kept: list[Receipt] = []
@@ -374,6 +377,81 @@ def reconcile(repo: Path, state: staging.StagingState, coords: str | None) -> di
         merge_into(repo, sha, receipts)
     state.receipts = kept
     return attached
+
+
+_FIXUP_PREFIXES = ("fixup! ", "squash! ", "amend! ")
+
+
+def _subject_key(subject: str) -> str:
+    while subject.startswith(_FIXUP_PREFIXES):
+        subject = subject.split(" ", 1)[1]
+    return subject
+
+
+def _patch_ids(repo: Path, shas: list[str]) -> dict[str, str]:
+    """commit -> stable patch id. Merges have no patch and are absent."""
+    if not shas:
+        return {}
+    patches = git(repo, "log", "--no-walk", "--no-color", "-p", *shas, strip=False)
+    out = git(repo, "patch-id", "--stable", input_text=patches)
+    return {sha: pid for pid, sha in (line.split() for line in out.splitlines())}
+
+
+def _subjects(repo: Path, shas: list[str]) -> dict[str, str]:
+    if not shas:
+        return {}
+    out = git(repo, "log", "--no-walk", "--format=%H%x09%s", *shas)
+    return dict(line.split("\t", 1) for line in out.splitlines() if "\t" in line)
+
+
+def _follow_rewrites(repo: Path, old_head: str, head_sha: str) -> int:
+    """Move notes off commits an amend, rebase or squash replaced, when the
+    post-rewrite hook that normally does it never ran.
+
+    A commit counts as rewritten once no local branch and not HEAD reaches
+    it. That is what separates a rewrite from a branch switch (the old tip
+    is still on its branch) and a cherry-pick (the original is still live),
+    and it still catches amending a pushed commit, which only the remote
+    branch reaches.
+
+    Each such commit with a note moves to its replacement among the new
+    commits: identical changes first (patch-id: a clean rebase, a reworded
+    message), then the same subject once fixup!/squash! is dropped (an
+    amend that changed content, a squash). Ambiguity moves nothing — a note
+    on the wrong commit is worse than an orphan, which doctor reports.
+    """
+    if _is_ancestor(repo, old_head, head_sha):
+        return 0  # history only moved forward
+    dropped = git(repo, "rev-list", old_head, "--not", "--branches", "HEAD").split()
+    if not dropped:
+        return 0
+    noted = set()
+    for ref in (NOTES_REF, SHARED_REF):
+        noted.update(commits_with_notes(repo, ref))
+    orphans = [sha for sha in dropped if sha in noted]
+    if not orphans:
+        return 0
+    fresh = git(repo, "rev-list", "-n", "500", head_sha, "--not", old_head).split()
+    if not fresh:
+        return 0
+
+    by_patch: dict[str, list[str]] = {}
+    for sha, pid in _patch_ids(repo, fresh).items():
+        by_patch.setdefault(pid, []).append(sha)
+    by_subject: dict[str, list[str]] = {}
+    for sha, subject in _subjects(repo, fresh).items():
+        by_subject.setdefault(_subject_key(subject), []).append(sha)
+    old_patch = _patch_ids(repo, orphans)
+    old_subject = _subjects(repo, orphans)
+
+    moved = 0
+    for sha in orphans:
+        same = by_patch.get(old_patch.get(sha, ""), [])
+        if len(same) != 1:
+            same = by_subject.get(_subject_key(old_subject.get(sha, "")), [])
+        if len(same) == 1:
+            moved += remap_all(repo, sha, same[0])
+    return moved
 
 
 def reconcile_now(repo: Path) -> None:

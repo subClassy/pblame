@@ -86,6 +86,23 @@ def _check_git_hooks(repo: Path) -> list[Check]:
     except config.ConfigError:
         sharing = False
     out = []
+    override = git_hooks.hooks_path_override(repo)
+    if override:
+        # The hook files are there, but git is looking elsewhere. Saying
+        # "installed" here is how a husky repo went unattributed while this
+        # check passed. Each hook's job now happens some other way; say how.
+        instead = {
+            "post-commit": "commits are attributed at the next prompt or pblame command",
+            "post-rewrite": "amends and rebases are followed at the next prompt",
+            "pre-push": "git push will not share prompts; run `pblame push`",
+            "post-merge": "git pull will not fetch prompts; run `pblame pull`",
+        }
+        for name in git_hooks.HOOKS:
+            if name in git_hooks.SHARING_HOOKS and not sharing:
+                continue
+            out.append(Check(WARN, f"{name} hook",
+                             f"not run by git (core.hooksPath is {override}); {instead[name]}"))
+        return out
     for name in git_hooks.HOOKS:
         path = repo / ".git" / "hooks" / name
         if not path.exists() or git_hooks.MARK_START not in path.read_text(encoding=config.USER_TEXT):

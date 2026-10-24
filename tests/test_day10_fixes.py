@@ -152,3 +152,91 @@ def test_normal_repos_still_attach_at_commit_time(repo):
     turn(repo, "add a line", "a.py", "one\n")
     sha = commit(repo)
     assert texts_on(repo, sha) == ["add a line"]
+
+
+# --- 20, continued: rewrites the post-rewrite hook never saw ---------------
+
+def test_an_amend_without_hooks_moves_the_note_at_the_next_prompt(husky):
+    turn(husky, "add a line", "a.py", "one\n")
+    old = commit(husky, "add a")
+    submit(husky, "look")                         # attaches to `old`
+    stop(husky)
+    assert texts_on(husky, old) == ["add a line"]
+
+    (husky / "a.py").write_text("one\nand more\n")
+    run_git(husky, "commit", "-qa", "--amend", "-m", "add a")
+    new = git(husky, "rev-parse", "HEAD")
+    submit(husky, "after the amend")
+
+    assert texts_on(husky, new) == ["add a line"]
+    assert texts_on(husky, old) == []
+
+
+def test_an_autosquash_without_hooks_lands_both_prompts_on_one_commit(husky, monkeypatch):
+    turn(husky, "add a json flag", "a.py", "one\n")
+    commit(husky, "envdiff: --json output")
+    turn(husky, "make the json prettier", "a.py", "one\ntwo\n")
+    run_git(husky, "add", "-A")
+    run_git(husky, "commit", "-q", "--fixup", "HEAD")
+    submit(husky, "look")
+    stop(husky)
+
+    monkeypatch.setenv("GIT_SEQUENCE_EDITOR", "true")
+    run_git(husky, "rebase", "-q", "-i", "--autosquash", "HEAD~2")
+    squashed = git(husky, "rev-parse", "HEAD")
+    submit(husky, "after the squash")
+
+    assert texts_on(husky, squashed) == ["add a json flag", "make the json prettier"]
+
+
+def test_switching_branches_moves_nothing(husky):
+    turn(husky, "on main", "a.py", "one\n")
+    on_main = commit(husky, "main work")
+    run_git(husky, "checkout", "-q", "-b", "feature")
+    turn(husky, "on feature", "b.py", "two\n")
+    on_feature = commit(husky, "feature work")
+    submit(husky, "look")
+    stop(husky)
+    run_git(husky, "checkout", "-q", "main")
+    submit(husky, "back on main")
+
+    assert texts_on(husky, on_main) == ["on main"]
+    assert texts_on(husky, on_feature) == ["on feature"]
+
+
+def test_a_cherry_pick_leaves_the_original_its_note(husky):
+    """Same patch-id on two live commits is a copy, not a rewrite."""
+    run_git(husky, "checkout", "-q", "-b", "feature")
+    turn(husky, "the fix", "fix.py", "fixed\n")
+    original = commit(husky, "the fix")
+    submit(husky, "look")
+    stop(husky)
+    run_git(husky, "checkout", "-q", "main")
+    run_git(husky, "cherry-pick", original)
+    submit(husky, "after the pick")
+
+    assert texts_on(husky, original) == ["the fix"]
+
+
+def test_an_ambiguous_match_is_left_alone(husky):
+    """Two new commits with the dropped commit's subject: moving the note to
+    either would be a guess. The orphan stays, and doctor reports it."""
+    turn(husky, "first try", "a.py", "one\n")
+    old = commit(husky, "wip")
+    submit(husky, "look")
+    stop(husky)
+    run_git(husky, "reset", "-q", "--hard", "HEAD~1")
+    (husky / "x.txt").write_text("x\n")
+    commit(husky, "wip")
+    (husky / "y.txt").write_text("y\n")
+    commit(husky, "wip")
+    submit(husky, "after")
+
+    assert texts_on(husky, old) == ["first try"]
+
+
+def test_init_says_git_hooks_will_not_run(repo, capsys):
+    run_git(repo, "config", "core.hooksPath", ".husky")
+    assert main(["init", str(repo)]) == 0
+    out = capsys.readouterr().out
+    assert "core.hooksPath" in out and "next prompt" in out

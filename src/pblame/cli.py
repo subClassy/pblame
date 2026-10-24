@@ -51,6 +51,11 @@ def cmd_init(args: argparse.Namespace) -> int:
     ui.out.plain()
     ui.out.field("Claude Code hooks", str(settings.relative_to(repo)))
     ui.out.field("git hooks", ", ".join(h.name for h in hooks))
+    override = git_hooks.hooks_path_override(repo)
+    if override:
+        ui.out.plain()
+        ui.out.note(f"core.hooksPath is {override} (husky?), so git will not run these hooks.")
+        ui.out.note("Commits are attributed at your next prompt or pblame command instead.")
     ui.out.plain()
     ui.out.note("Open a new Claude Code session - hooks load when a session starts.")
     # A fresh clone has no hooks (git never clones them) and its first pull is
