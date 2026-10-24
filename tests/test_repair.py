@@ -11,7 +11,7 @@ from pblame.models import FileChange, PromptEvent, Receipt
 from pblame.snapshot import git
 
 WRAPPED = ('<ide_opened_file>The user opened the file '
-           r'c:\Users\subCl\Documents\app.py'
+           r'c:\Users\alice\Documents\app.py'
            ' in the IDE. This may or may not be '
            'related to the current task.</ide_opened_file>\nmake it look nicer')
 
@@ -58,7 +58,7 @@ def test_repair_removes_the_secret_that_lived_in_the_wrapper(repo):
     assert before[1].prompt.secrets == {}                   # nothing left after cleaning
 
     repair.apply(repo, repair.plan(repo, config.load(repo)))
-    assert "subCl" not in notes.read(repo, sha)[0].prompt.text
+    assert "alice" not in notes.read(repo, sha)[0].prompt.text
 
 
 def test_refreshes_the_secret_scan_on_old_receipts(repo):

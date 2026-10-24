@@ -196,12 +196,12 @@ def test_show_includes_a_teammates_shared_prompts(tmp_path, repo, origin, capsys
 
 def test_editor_context_paths_do_not_leak_a_username(repo, origin):
     """Found on real data: the shared copy carried the Windows home path."""
-    sha = record(repo, r"look at c:\Users\subCl\Documents\app.py", body="base\nx\n")
+    sha = record(repo, r"look at c:\Users\alice\Documents\app.py", body="base\nx\n")
     share.push(repo, cfg_of(repo))
 
     shared = notes.read(repo, sha, notes.SHARED_REF)[0].prompt.text
-    assert "subCl" not in shared
-    assert "subCl" in notes.read(repo, sha)[0].prompt.text  # local keeps it
+    assert "alice" not in shared
+    assert "alice" in notes.read(repo, sha)[0].prompt.text  # local keeps it
 
 
 # --- the hooks do the sharing, so nobody has to remember ----------------
