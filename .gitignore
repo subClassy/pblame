@@ -10,3 +10,6 @@ build/
 # demo renders: regenerable, do not commit. Anchored: tools/demo/ is source.
 /demo/
 tools/demo/out/
+
+# Working notes: kept locally, not published.
+/docs/

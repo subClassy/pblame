@@ -2,8 +2,8 @@
 
 A Receipt is one agent turn: the prompt that started it, the tree snapshots
 bounding it, and the file line ranges it produced. Receipts accumulate in
-staging while the developer works and attach to whatever commit they make
-(git notes, day 3). See docs/gameplan-v2.md.
+staging while the developer works and attach to whatever commit they make,
+as git notes.
 """
 
 from dataclasses import dataclass, field

@@ -1,7 +1,7 @@
 # Publish site/ to GitHub Pages.
 #
-# Pages can only serve the repo root or /docs from a branch, and docs/ holds
-# the project's working notes, so the site is deployed from site/ by Actions.
+# Pages can only serve the repo root or /docs from a branch, and the site
+# lives in site/, so it is deployed by Actions instead.
 # One-time setup: Settings -> Pages -> Source: "GitHub Actions".
 #
 # The page is built locally (tools/demo/build_site.py needs the demo repo and
