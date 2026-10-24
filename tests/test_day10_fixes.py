@@ -461,3 +461,20 @@ def test_an_autosquash_reports_once_with_the_true_total(recorded, monkeypatch):
     assert "2 prompts" in said[0]
     assert texts_on(recorded, git(recorded, "rev-parse", "HEAD")) == [
         "add a json flag", "make the json prettier"]
+
+
+# --- 26. a -L slice that starts on a blank line -----------------------------
+
+def test_a_slice_starting_on_a_blank_line_gives_it_no_header(recorded):
+    """Blank lines never start a group in a whole-file blame; a slice can
+    begin on one, and then it got a prompt header of its own."""
+    from pblame import blame
+    turn(recorded, "first prompt", "a.py", "x = 1\n\n")
+    commit(recorded, "first")
+    turn(recorded, "second prompt", "a.py", "x = 1\n\ny = 2\n")
+    commit(recorded, "second")
+
+    lines = blame.select(blame.attribute(recorded, "a.py"), "2,3")
+    text = blame.render(lines, "a.py:2,3", color=False)
+    assert "first prompt" not in text, text
+    assert text.count("second prompt") == 1

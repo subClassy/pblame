@@ -98,13 +98,22 @@ def _groups(lines: list[Line]) -> list[tuple[Receipt | None, list[Line]]]:
     true owner is still reported by --json.
     """
     groups: list[tuple[Receipt | None, list[Line]]] = []
+    # A -L slice can begin on blank lines, with no group yet to join: they
+    # wait for the first real line and join its group instead of heading one.
+    leading: list[Line] = []
     for line in lines:
+        if not groups and not line.text.strip():
+            leading.append(line)
+            continue
         key = line.receipt.prompt.id if line.receipt else None
         current = (groups[-1][0].prompt.id if groups[-1][0] else None) if groups else object()
         if groups and (current == key or not line.text.strip()):
             groups[-1][1].append(line)
         else:
-            groups.append((line.receipt, [line]))
+            groups.append((line.receipt, leading + [line]))
+            leading = []
+    if leading:  # nothing but blank lines
+        groups.append((leading[0].receipt, leading))
     return groups
 
 
