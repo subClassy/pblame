@@ -2,7 +2,8 @@
 
 Found while researching git-ai, recording the demo with real Claude Code, and building
 the page. None was fixed in this pass; the site does not depend on any of them, and the
-README and site describe 20 honestly. Numbering continues from
+README and site describe 20 and 27 honestly. 25–28 were seen during recording and written
+up afterwards, when asked whether everything had been noted. Numbering continues from
 [day9-fix-verification.md](day9-fix-verification.md).
 
 | # | Severity | Finding |
@@ -12,6 +13,10 @@ README and site describe 20 honestly. Numbering continues from
 | 22 | reporting | `doctor` headline says "Not recording reliably" when the only failure is a sharing-safety check |
 | 23 | gap | `search --path` does not follow renames; `blame` does |
 | 24 | reporting | a pure rename is listed as "(removed)" |
+| 25 | noise | untracked build output (`__pycache__/*.pyc`) is attributed, and a receipt for a file that is later ignored never leaves staging |
+| 26 | display | `blame -L` starting on a blank line gives that blank line its own prompt header |
+| 27 | cost | the commit hook adds ~300 ms to every `git commit` |
+| 28 | display | one autosquash rebase prints "carried 1 prompt" twice |
 
 ## 20. `core.hooksPath` turns pblame off, silently
 
@@ -74,6 +79,59 @@ dotenv_loader.py (removed) · envdiff.py 7
 `dotenv_loader.py` was created. A rename that changes no lines records the path with empty
 ranges, and the renderer reads empty ranges as a deletion. It needs to know which one it
 is — the snapshot diff already has the rename (`-M`); the receipt does not keep it.
+
+## 25. Build output gets attributed, and lingers
+
+While the hero was filmed, Claude ran `envdiff.py` to test its change, which wrote
+`__pycache__/envfile.cpython-313.pyc`. The demo repo had no `.gitignore` yet, so the
+snapshot (which uses `git add -A` semantics, to catch new files) recorded the `.pyc` as part
+of the prompt's work, with empty ranges.
+
+Two consequences. The receipt names a binary nobody would call the prompt's output. And
+once `__pycache__/` was ignored, that part of the receipt could never attach to a commit:
+it stays in staging, and `doctor` reports *"1 prompt awaiting a commit"* indefinitely.
+
+**Fix:** skip files git considers binary when building a receipt, and drop staged parts
+whose paths have since become ignored, at attach time.
+
+## 26. A `-L` slice that starts on a blank line headers the blank line
+
+Day 7's fix 4 stopped blank lines from starting a group, so they never carry a prompt
+header in a whole-file blame. A slice can start *on* one, and then there is no group to
+join, so the blank line gets a header of its own. Seen on `styles.css -L 52,61` in
+dummy_clock while choosing the demo frame:
+
+```
+  ▎ Rewrite style.css to use CSS custom properties ...
+  ▎ claude-sonnet-5 - e6231cf - 2026-09-08 19:38
+  ▎ 52 │
+```
+
+**Fix:** skip leading blank lines when choosing the first group's header, or start the
+slice's first group at the first non-blank line.
+
+## 27. Every `git commit` pays ~300 ms
+
+Measured while checking the README: 430 ms per commit with pblame installed, 125 ms with
+hooks bypassed, five runs each, on Windows. The hook's work is small; the cost is starting
+Python. git-ai advertises `+0ms` on git commands, because it has no git hooks.
+
+Not a bug, and now stated honestly in the README and on the site. But it is the strongest
+argument for finding 20's fix: if attachment happens lazily, the commit hook can become
+optional, and `git commit` pays nothing.
+
+## 28. One rebase, two "carried" messages
+
+```
+git rebase -q -i --autosquash HEAD~2
+pblame carried 1 prompt onto the rewritten commit
+pblame carried 1 prompt onto the rewritten commit
+```
+
+Correct per invocation: an autosquash runs an internal amend (one `post-rewrite`) and then
+the rebase itself (another). Read together it looks like a duplicate, or as if only one
+prompt moved when two did. Cosmetic; worth folding into a single line if it ever confuses
+someone.
 
 ## Things that were not bugs
 
