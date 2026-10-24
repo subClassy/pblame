@@ -391,3 +391,50 @@ def test_notes_are_stored_with_plain_newlines(repo):
     notes.write(repo, sha, [make_receipt(), make_receipt()])
     blob = git(repo, "notes", "--ref", notes.NOTES_REF, "list", sha)
     assert b"\r\n" not in git_bytes(repo, "cat-file", "blob", blob)
+
+
+# --- 23. search --path follows renames, like blame does ---------------------
+
+def test_search_by_a_files_current_name_finds_prompts_from_its_old_name(recorded, monkeypatch, capsys):
+    turn(recorded, "write the loader", "envfile.py", "def load():\n    return {}\n")
+    commit(recorded, "loader")
+    run_git(recorded, "mv", "envfile.py", "loader.py")
+    run_git(recorded, "commit", "-q", "-m", "rename by hand")
+
+    monkeypatch.chdir(recorded)
+    assert main(["search", "--path", "loader.py", "--no-color"]) == 0
+    assert "write the loader" in capsys.readouterr().out
+
+
+def test_a_new_file_reusing_an_old_name_does_not_inherit_its_prompts(recorded, monkeypatch, capsys):
+    """Matched on (commit, name at the time), not the name alone."""
+    turn(recorded, "write the loader", "envfile.py", "def load():\n    return {}\n")
+    commit(recorded, "loader")
+    run_git(recorded, "mv", "envfile.py", "loader.py")
+    run_git(recorded, "commit", "-q", "-m", "rename by hand")
+    turn(recorded, "a different envfile", "other.py", "x = 1\n")
+    commit(recorded, "other")
+
+    monkeypatch.chdir(recorded)
+    main(["search", "--path", "other.py", "--no-color"])
+    out = capsys.readouterr().out
+    assert "a different envfile" in out
+    assert "write the loader" not in out
+
+
+# --- 21. the footer counts what matched, not what fitted --------------------
+
+def test_a_limited_search_says_how_many_matched(recorded, monkeypatch, capsys):
+    for n in range(4):
+        turn(recorded, f"make change {n}", f"f{n}.py", f"{n}\n")
+        commit(recorded, f"c{n}")
+    monkeypatch.chdir(recorded)
+
+    main(["search", "make", "--limit", "2", "--no-color"])
+    out = capsys.readouterr().out
+    assert "2 of 4 matches" in out, out[-200:]
+
+    main(["search", "make", "--limit", "2", "--json"])
+    import json as _json
+    payload = _json.loads(capsys.readouterr().out)
+    assert (payload["count"], payload["matched"]) == (2, 4)

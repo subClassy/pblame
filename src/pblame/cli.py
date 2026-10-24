@@ -372,16 +372,19 @@ def cmd_search(args: argparse.Namespace) -> int:
         ui.err.bad(f"Cannot read a date from that ({e})")
         return 1
 
+    if args.path:
+        query.history = index.path_history(repo, args.path)
     entries = index.load(repo)
     hits, matcher = index.search(entries, query)
+    matched = len(hits)
     if args.limit and len(hits) > args.limit:
         hits = hits[: args.limit]
 
     if args.json:
-        print(json.dumps(index.to_json(hits), indent=2))
+        print(json.dumps(index.to_json(hits, matched), indent=2))
         return 0
 
-    print(searchview.render(hits, matcher, total=len(entries),
+    print(searchview.render(hits, matcher, total=len(entries), matched=matched,
                             color=_use_color(args)))
     return 0 if hits else 1
 
