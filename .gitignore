@@ -7,5 +7,6 @@ build/
 # distribution archives
 *.7z
 
-# demo renders: regenerate with tools/demo.tape, do not commit
-demo/
+# demo renders: regenerable, do not commit. Anchored: tools/demo/ is source.
+/demo/
+tools/demo/out/

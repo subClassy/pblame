@@ -216,15 +216,15 @@ def test_redact_command_honours_repo_config(repo, capsys, monkeypatch):
 
 
 @pytest.mark.parametrize("path", [
-    r"c:\Users\subCl\Documents\x.py",   # lowercase drive: leaked a real username
-    r"C:\Users\subCl\Documents\x.py",
-    "C:/Users/subCl/Documents/x.py",
-    "/Users/subCl/x",
-    "/home/subCl/x",
+    r"c:\Users\alice\Documents\x.py",   # lowercase drive: leaked a real username
+    r"C:\Users\alice\Documents\x.py",
+    "C:/Users/alice/Documents/x.py",
+    "/Users/alice/x",
+    "/home/alice/x",
 ])
 def test_home_paths_redact_the_username_on_every_platform_spelling(path):
     out = r(path)
-    assert "subCl" not in out.text, f"username leaked from {path!r}"
+    assert "alice" not in out.text, f"username leaked from {path!r}"
     assert "HOME_PATH" in out.counts
 
 
