@@ -240,3 +240,45 @@ def test_init_says_git_hooks_will_not_run(repo, capsys):
     assert main(["init", str(repo)]) == 0
     out = capsys.readouterr().out
     assert "core.hooksPath" in out and "next prompt" in out
+
+
+# --- 22. doctor must not blame recording for a sharing problem -------------
+
+def _secret_repo(repo, disable=False):
+    import json as _json
+    from pblame import config
+    (repo / "base.txt").write_text("base\n")
+    commit(repo, "base")
+    claude_code.install(repo)
+    git_hooks.install_hooks(repo)
+    (repo / config.LOCAL_FILENAME).write_text(_json.dumps({"share": {"enabled": True}}))
+    if disable:
+        (repo / config.FILENAME).write_text(_json.dumps(
+            {"redaction": {"disable_patterns": ["AWS_KEY"]}}))
+    turn(repo, "deploy with AKIAIOSFODNN7EXAMPLE please", "a.py", "one\n")
+
+
+def test_a_sharing_failure_does_not_say_recording_is_unreliable(repo):
+    """AWS_KEY is switched off before the prompt is even captured, so the
+    capture-time scan never saw the key. doctor has to look again."""
+    _secret_repo(repo, disable=True)
+    checks = doctor.run(repo)
+    secrets = {c.label: c for c in checks}["secrets in prompts"]
+    assert secrets.status == doctor.FAIL, secrets
+    assert "AWS_KEY" in secrets.detail
+
+    text = doctor.render(checks, color=False)
+    assert "Not recording reliably" not in text
+    assert "Recording is live" in text and "1 sharing check failing" in text
+
+
+def test_a_recording_failure_still_says_so(repo):
+    _secret_repo(repo)
+    (repo / ".git" / "pblame" / "hook.log").write_text("2026-10-24 boom\n")
+    assert "Not recording reliably" in doctor.render(doctor.run(repo), color=False)
+
+
+def test_one_prompt_contains_not_contain(repo):
+    _secret_repo(repo)
+    detail = {c.label: c.detail for c in doctor.run(repo)}["secrets in prompts"]
+    assert detail.startswith("1 prompt contains "), detail
