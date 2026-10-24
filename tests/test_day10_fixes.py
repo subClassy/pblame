@@ -282,3 +282,24 @@ def test_one_prompt_contains_not_contain(repo):
     _secret_repo(repo)
     detail = {c.label: c.detail for c in doctor.run(repo)}["secrets in prompts"]
     assert detail.startswith("1 prompt contains "), detail
+
+# --- 29. text sent to git on stdin arrived with \r\n on Windows ------------
+
+def test_stdin_reaches_git_without_carriage_returns(repo):
+    """Text-mode stdin turned "\n" into "\r\n" on Windows: check-ignore
+    was asked about "a.pyc\r" and matched nothing."""
+    (repo / ".gitignore").write_text("*.pyc\n")
+    (repo / "a.pyc").write_bytes(b"\x00")
+    assert git(repo, "check-ignore", "--stdin", input_text="a.pyc\n") == "a.pyc"
+
+
+def test_notes_are_stored_with_plain_newlines(repo):
+    """The same receipt written on Windows and on Linux should be the same
+    bytes, or every note differs between teammates for no reason."""
+    from pblame.snapshot import git_bytes
+    from test_staging import make_receipt
+    (repo / "a.txt").write_text("a\n")
+    sha = commit(repo, "a")
+    notes.write(repo, sha, [make_receipt(), make_receipt()])
+    blob = git(repo, "notes", "--ref", notes.NOTES_REF, "list", sha)
+    assert b"\r\n" not in git_bytes(repo, "cat-file", "blob", blob)

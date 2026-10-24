@@ -29,17 +29,22 @@ def git(repo: Path, *args: str, env: dict[str, str] | None = None,
     proc = subprocess.run(
         ["git", "-C", str(repo), *args],
         capture_output=True,
-        text=True,
-        # Repo content is UTF-8. Without this, Windows decodes git's output as
-        # cp1252 and a single emoji in a tracked file kills every git call.
-        encoding="utf-8",
-        errors="replace",
         env=full_env,
-        input=input_text,
+        # Bytes, not text mode: text-mode stdin turns every "\n" into "\r\n"
+        # on Windows, so `check-ignore --stdin` was asked about "a.pyc\r".
+        input=input_text.encode("utf-8") if input_text is not None else None,
     )
+    stdout, stderr = _decode(proc.stdout), _decode(proc.stderr)
     if proc.returncode != 0:
-        raise GitError(f"git {' '.join(args)}: {proc.stderr.strip()}")
-    return proc.stdout.strip() if strip else proc.stdout
+        raise GitError(f"git {' '.join(args)}: {stderr.strip()}")
+    return stdout.strip() if strip else stdout
+
+
+def _decode(raw: bytes) -> str:
+    """What text mode produced, minus its stdin translation: UTF-8, since repo
+    content is (decoding as cp1252 once let a single emoji kill every git
+    call), with universal newlines."""
+    return raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
 
 
 def git_bytes(repo: Path, *args: str, input_bytes: bytes | None = None) -> bytes:
