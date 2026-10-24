@@ -283,6 +283,94 @@ def test_one_prompt_contains_not_contain(repo):
     detail = {c.label: c.detail for c in doctor.run(repo)}["secrets in prompts"]
     assert detail.startswith("1 prompt contains "), detail
 
+
+# --- 24, 25: what a file with no line ranges actually was ------------------
+
+@pytest.fixture
+def recorded(repo):
+    """An ordinary repo: hooks installed and running."""
+    (repo / "envfile.py").write_text("def load():\n    pass\n")
+    (repo / "keep.py").write_text("a\nb\nc\n")
+    commit(repo, "base")
+    claude_code.install(repo)
+    git_hooks.install_hooks(repo)
+    return repo
+
+
+def files_on(repo, sha):
+    return {f.path: f for r in notes.read(repo, sha) for f in r.files}
+
+
+def test_a_pure_rename_is_labelled_a_rename_not_a_removal(recorded, monkeypatch, capsys):
+    submit(recorded, "rename envfile.py to loader.py")
+    (recorded / "envfile.py").rename(recorded / "loader.py")
+    stop(recorded)
+    sha = commit(recorded, "rename")
+
+    f = files_on(recorded, sha)["loader.py"]
+    assert (f.kind, f.renamed_from) == ("renamed", "envfile.py")
+    monkeypatch.chdir(recorded)
+    main(["search", "rename", "--no-color"])
+    out = capsys.readouterr().out
+    assert "loader.py (renamed from envfile.py)" in out
+    assert "(removed)" not in out
+
+
+def test_a_deleted_file_is_labelled_deleted(recorded):
+    submit(recorded, "delete it")
+    (recorded / "envfile.py").unlink()
+    stop(recorded)
+    sha = commit(recorded, "delete")
+    assert files_on(recorded, sha)["envfile.py"].label() == "(deleted)"
+
+
+def test_lines_only_removed_is_not_called_a_removed_file(recorded, monkeypatch, capsys):
+    submit(recorded, "drop the middle line")
+    (recorded / "keep.py").write_text("a\nc\n")
+    stop(recorded)
+    sha = commit(recorded, "trim")
+    assert files_on(recorded, sha)["keep.py"].label() == "(lines removed)"
+    monkeypatch.chdir(recorded)
+    main(["show", "HEAD"])
+    assert "keep.py  (lines removed)" in capsys.readouterr().out
+
+
+def test_a_binary_file_is_labelled_binary(recorded):
+    submit(recorded, "make a logo")
+    (recorded / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00binary")
+    stop(recorded)
+    sha = commit(recorded, "logo")
+    assert files_on(recorded, sha)["logo.png"].label() == "(binary)"
+
+
+def test_a_receipt_from_before_kinds_existed_reads_neutrally():
+    from pblame.models import FileChange
+    old = FileChange.from_dict({"path": "x.py", "ranges": []})
+    assert old.kind is None and old.label() == "(no added lines)"
+
+
+def test_notes_without_a_kind_stay_byte_identical():
+    """Older pblame versions read these notes; nothing new unless needed."""
+    from pblame.models import FileChange
+    assert FileChange("x.py", [(1, 2)]).to_dict() == {"path": "x.py", "ranges": [[1, 2]]}
+
+
+def test_a_waiting_part_for_a_path_now_ignored_is_dropped(recorded):
+    """Finding 25: build output recorded before it was ignored waited in
+    staging forever, and doctor kept counting it as awaiting a commit."""
+    submit(recorded, "run it")
+    (recorded / "a.py").write_text("one\n")
+    (recorded / "a.pyc").write_bytes(b"\x00\x01bytecode")
+    stop(recorded)
+    run_git(recorded, "add", "a.py")
+    run_git(recorded, "commit", "-q", "-m", "only a.py")
+    (recorded / ".gitignore").write_text("*.pyc\n")
+    submit(recorded, "next")
+
+    waiting = [f.path for r in staging.load(recorded).receipts for f in r.files]
+    assert "a.pyc" not in waiting
+
+
 # --- 29. text sent to git on stdin arrived with \r\n on Windows ------------
 
 def test_stdin_reaches_git_without_carriage_returns(repo):

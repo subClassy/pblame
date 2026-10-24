@@ -190,6 +190,29 @@ def renames(repo: Path, old_tree: str, new_tree: str) -> dict[str, str]:
     return moved
 
 
+def file_kinds(repo: Path, old_tree: str, new_tree: str) -> dict[str, tuple[str, str | None]]:
+    """{path: (kind, renamed_from)} for changes that leave no line ranges
+    to point at: a deletion, a rename, or a binary file."""
+    if old_tree == new_tree:
+        return {}
+    kinds: dict[str, tuple[str, str | None]] = {}
+    status = git(repo, "diff-tree", "-r", RENAMES, "--name-status", "--no-commit-id",
+                 old_tree, new_tree)
+    for line in status.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R"):
+            kinds[parts[2]] = ("renamed", parts[1])
+        elif len(parts) == 2 and parts[0] == "D":
+            kinds[parts[1]] = ("deleted", None)
+    # Without -M, so each path is plain; numstat writes "-" for a binary.
+    numstat = git(repo, "diff-tree", "-r", "--numstat", "--no-commit-id", old_tree, new_tree)
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) == 3 and parts[0] == "-" and parts[1] == "-":
+            kinds.setdefault(parts[2], ("binary", None))
+    return kinds
+
+
 def commit_paths(repo: Path, sha: str) -> set[str]:
     """Paths a commit changed. A merge diffs against its first parent —
     without that, diff-tree reports nothing at all for merge commits."""

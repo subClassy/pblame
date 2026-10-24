@@ -15,6 +15,7 @@ from .snapshot import (
     GitError,
     commit_paths,
     diff_hunks,
+    file_kinds,
     git,
     hunk_offsets,
     renames,
@@ -201,6 +202,40 @@ def remove(repo: Path, sha: str, ref: str = NOTES_REF) -> None:
         pass  # nothing there to remove
 
 
+def file_changes(repo: Path, pre: str, post: str) -> list[FileChange]:
+    """Every path a turn touched, with its line ranges, and for a path left
+    with none, which of the reasons it was. Shared by both places a receipt
+    gets closed, so they cannot drift apart."""
+    hunks = diff_hunks(repo, pre, post)
+    kinds = file_kinds(repo, pre, post)
+    changes = []
+    for path in sorted(touched_paths(repo, pre, post)):
+        ranges = hunks.get(path, [])
+        kind, source = kinds.get(path, (None, None))
+        if kind is None and not ranges:
+            kind = "lines_removed"  # still there, only shorter
+        changes.append(FileChange(path=path, ranges=ranges, kind=kind, renamed_from=source))
+    return changes
+
+
+def _drop_ignored(repo: Path, receipts: list[Receipt]) -> None:
+    """Parts for paths git now ignores can never be committed, so they would
+    wait in staging forever. Tracked files are never reported as ignored, so
+    this only ever drops output that was never going to be committed."""
+    paths = sorted({f.path for r in receipts if not r.is_open for f in r.files})
+    if not paths:
+        return
+    try:
+        out = git(repo, "check-ignore", "--stdin", input_text="\n".join(paths) + "\n")
+    except GitError:
+        return  # exit 1 means nothing is ignored
+    ignored = set(out.splitlines())
+    for r in receipts:
+        if not r.is_open:
+            r.files = [f for f in r.files if f.path not in ignored]
+    receipts[:] = [r for r in receipts if r.is_open or r.files]
+
+
 def _close_orphans(repo: Path, state: staging.StagingState) -> None:
     """Close receipts a dead session left open.
 
@@ -222,11 +257,7 @@ def _close_orphans(repo: Path, state: staging.StagingState) -> None:
         end = receipts[i + 1].pre_tree if i + 1 < len(receipts) else now
 
         r.post_tree = end
-        hunks = diff_hunks(repo, r.pre_tree, end)
-        r.files = [
-            FileChange(path=p, ranges=hunks.get(p, []))
-            for p in sorted(touched_paths(repo, r.pre_tree, end))
-        ]
+        r.files = file_changes(repo, r.pre_tree, end)
         if end != now:
             staging.apply_renames([r], renames(repo, end, now))
             staging.apply_offsets([r], hunk_offsets(repo, end, now))
@@ -373,6 +404,7 @@ def reconcile(repo: Path, state: staging.StagingState, coords: str | None) -> di
         if rest is not None and rest.files:
             kept.append(rest)
             state.checked_to[rest.prompt.id] = head_sha
+    _drop_ignored(repo, kept)
     for sha, receipts in attached.items():
         merge_into(repo, sha, receipts)
     state.receipts = kept

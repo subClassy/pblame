@@ -21,14 +21,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .. import config, git_hooks, notes, redact, staging
-from ..models import FileChange, PromptEvent, Receipt
+from ..models import PromptEvent, Receipt
 from ..snapshot import (
-    diff_hunks,
     hunk_offsets,
     renames,
     repo_root,
     snapshot_tree,
-    touched_paths,
 )
 
 HOOK_EVENTS = ("UserPromptSubmit", "Stop")
@@ -129,11 +127,7 @@ def _close(repo: Path, receipts: list[Receipt], payload: dict, post_tree: str) -
     receipt.post_tree = post_tree
     # Every touched path, not just those with surviving lines: a prompt that
     # only deletes code still changed the codebase and belongs in the record.
-    hunks = diff_hunks(repo, receipt.pre_tree, post_tree)
-    receipt.files = [
-        FileChange(path=path, ranges=hunks.get(path, []))
-        for path in sorted(touched_paths(repo, receipt.pre_tree, post_tree))
-    ]
+    receipt.files = notes.file_changes(repo, receipt.pre_tree, post_tree)
     model = _model_from_transcript(payload.get("transcript_path"))
     receipt.prompt = dataclasses.replace(receipt.prompt, model=model)
 

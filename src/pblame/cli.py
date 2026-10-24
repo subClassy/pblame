@@ -443,7 +443,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         print(f"  {r.prompt.text.strip()}")
         for fc in r.files:
             spans = ", ".join(f"{s}-{e}" if s != e else str(s) for s, e in fc.ranges)
-            print(f"    {fc.path}  {spans or '(no surviving lines)'}")
+            print(f"    {fc.path}  {spans or fc.label()}")
         print()
     return 0
 

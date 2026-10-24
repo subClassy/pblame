@@ -23,7 +23,7 @@ def _files(entry: Entry) -> str:
     parts = []
     for f in entry.receipt.files:
         spans = ",".join(f"{s}-{e}" if s != e else str(s) for s, e in f.ranges)
-        parts.append(f"{f.path} {spans}" if spans else f"{f.path} (removed)")
+        parts.append(f"{f.path} {spans}" if spans else f"{f.path} {f.label()}")
     # Via the symbol set, so a cp1252 console gets an ASCII separator rather
     # than a replacement character.
     return f" {ui.out.sym['sep']} ".join(parts)
